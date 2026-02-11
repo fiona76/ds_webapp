@@ -1,0 +1,6 @@
+trame>=3.6
+trame-vuetify>=2.7
+trame-vtk>=2.8
+trame-components>=2.4
+vtk>=9.3
+playwright>=1.40

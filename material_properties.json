@@ -1,0 +1,115 @@
+{
+  "catalog": {
+    "density": {
+      "kind": "scalar",
+      "default_units": "kg/m^3",
+      "temperature_dependence": false
+    },
+    "youngs_modulus": {
+      "kind": "scalar",
+      "default_units": "Pa",
+      "temperature_dependence": false
+    },
+    "poissons_ratio": {
+      "kind": "scalar",
+      "default_units": "",
+      "temperature_dependence": false
+    },
+    "thermal_conductivity": {
+      "kind": "tensor",
+      "default_units": "W/(m*K)",
+      "temperature_dependence": true,
+      "symmetry": "orthotropic"
+    },
+    "specific_heat": {
+      "kind": "scalar",
+      "default_units": "J/(kg*K)",
+      "temperature_dependence": true
+    },
+    "thermal_expansion_coefficient": {
+      "kind": "scalar",
+      "default_units": "um/(m*K)",
+      "temperature_dependence": true
+    }
+  },
+  "materials": {
+    "SiO2": {
+      "name": "SiO2",
+      "properties": {
+        "thermal_conductivity": {
+          "type": "constant",
+          "units": "W/(m*K)",
+          "value": [
+            1.4,
+            1.4,
+            1.4
+          ]
+        },
+        "thermal_expansion_coefficient": {
+          "type": "constant",
+          "units": "um/(m*K)",
+          "value": 0.5
+        },
+        "specific_heat": {
+          "type": "constant",
+          "units": "J/(kg*K)",
+          "value": 730
+        },
+        "youngs_modulus": {
+          "type": "constant",
+          "units": "Pa",
+          "value": 70000000000.0
+        },
+        "poissons_ratio": {
+          "type": "constant",
+          "units": "",
+          "value": 0.17
+        },
+        "density": {
+          "type": "constant",
+          "units": "kg/m^3",
+          "value": 2200
+        }
+      }
+    },
+    "custom_material": {
+      "name": "custom_material",
+      "properties": {
+        "density": {
+          "type": "constant",
+          "units": "kg/m^3",
+          "value": 2320
+        },
+        "thermal_conductivity": {
+          "type": "constant",
+          "units": "W/(m*K)",
+          "value": [
+            131,
+            131,
+            131
+          ]
+        },
+        "youngs_modulus": {
+          "type": "constant",
+          "units": "Pa",
+          "value": 180000000000.0
+        },
+        "poissons_ratio": {
+          "type": "constant",
+          "units": "",
+          "value": 0.28
+        },
+        "specific_heat": {
+          "type": "constant",
+          "units": "J/(kg*K)",
+          "value": 700
+        },
+        "thermal_expansion_coefficient": {
+          "type": "constant",
+          "units": "um/(m*K)",
+          "value": 2.6
+        }
+      }
+    }
+  }
+}
