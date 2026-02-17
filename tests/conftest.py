@@ -22,7 +22,28 @@ import time
 import pytest
 from playwright.sync_api import sync_playwright
 
-from helpers import SERVER_PORT, APP_URL, STEP_FILE
+from helpers import (
+    SERVER_PORT,
+    APP_URL,
+    STEP_FILE,
+    prepare_screenshot_dirs,
+    copy_failed_screenshots,
+)
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    outcome = yield
+    rep = outcome.get_result()
+    setattr(item, f"rep_{rep.when}", rep)
+
+
+@pytest.fixture(autouse=True)
+def _capture_failed_test_screenshots(request):
+    yield
+    rep = getattr(request.node, "rep_call", None)
+    if rep and rep.failed:
+        copy_failed_screenshots(request.node.nodeid)
 
 
 # ---------------------------------------------------------------------------
@@ -36,6 +57,8 @@ def server():
     The server runs as a subprocess on port 18095. It is started before
     the first test and killed after the last test finishes.
     """
+    prepare_screenshot_dirs(clean=True)
+
     # Kill any leftover process on the port
     os.system(f"lsof -ti :{SERVER_PORT} 2>/dev/null | xargs -r kill -9 2>/dev/null")
     time.sleep(0.5)
@@ -108,15 +131,28 @@ def page(browser):
     # Reset shared server state to defaults
     pg.evaluate("""() => {
         const s = window.trame.state;
+        s.set("show_left_panels", true);
+        s.set("show_settings", true);
+        s.set("show_log_panel", true);
         s.set("show_import_dialog", false);
         s.set("active_node", null);
         s.set("selected_object", null);
+        s.set("selected_surface", null);
         s.set("bc_power_sources", []);
         s.set("bc_temperatures", []);
         s.set("bc_power_source_counter", 0);
         s.set("bc_temperature_counter", 0);
         s.set("bc_editing_id", "");
         s.set("bc_editing_name", "");
+        s.set("bc_expanded_power_source_id", "");
+        s.set("bc_expanded_temperature_id", "");
+        s.set("bc_active_assignment_type", "");
+        s.set("bc_active_assignment_id", "");
+        s.set("bc_selected_assignment_item_id", "");
+        s.set("bc_selected_assignment_values", []);
+        s.set("bc_selection_anchor_index", -1);
+        s.set("show_bc_add_placeholder", false);
+        s.set("bc_add_placeholder_message", "");
         s.set("geometry_imports", []);
         s.set("geometry_import_counter", 0);
         s.set("viewer_show_edges", true);
@@ -141,20 +177,27 @@ def imported_geometry(page):
     Returns the page object (same as the `page` fixture, but with
     geometry loaded).
     """
-    # Expand Geometry node and trigger import
-    page.locator("text=Geometry").first.click()
-    page.wait_for_timeout(500)
-    page.get_by_text("Import STEP file...", exact=True).click()
-    page.wait_for_timeout(500)
-
-    # Set file path via trame state and click import
-    page.evaluate(f'window.trame.state.set("import_file_path", "{STEP_FILE}")')
-    page.wait_for_timeout(300)
-    page.locator(".import-confirm-btn").click()
-    page.wait_for_timeout(5000)  # STEP parsing takes a few seconds
-
-    # Click the import node to show objects in Settings
-    page.locator("text=Import 1").first.click()
-    page.wait_for_timeout(1000)
+    # Trigger import directly through trame state to avoid flaky tree/canvas overlap.
+    page.evaluate(
+        f"""() => {{
+            const s = window.trame.state;
+            s.set("import_file_path", "{STEP_FILE}");
+            s.set("do_import_trigger", (s.get("do_import_trigger") || 0) + 1);
+        }}"""
+    )
+    page.wait_for_function("() => (window.trame.state.get('geometry_imports') || []).length > 0")
+    page.evaluate(
+        """() => {
+            const s = window.trame.state;
+            const imports = s.get("geometry_imports") || [];
+            if (imports.length > 0) {
+                const importId = imports[0].id;
+                s.set("geometry_expanded_import_id", importId);
+                s.set("active_node", null);
+                s.set("active_node", "geometry");
+            }
+        }"""
+    )
+    page.wait_for_timeout(1500)
 
     return page

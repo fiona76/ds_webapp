@@ -241,6 +241,135 @@
 
 ---
 
+### Step 6B: Boundary Condition Assignment Panels (Object/Surface) — DONE
+
+**Date:** 2026-02-11
+
+**Changes:**
+- **Expandable BC rows in Settings** for each `Power Source N` and `Temperature N`.
+- Expand/collapse can be triggered by clicking **row text** or chevron icon (improved discoverability).
+- **Per-item numeric inputs**:
+  - Power Source: `Power (W/m)` default `0`
+  - Temperature: `Temperature (oC)` default `0`
+- **Single assignment list box per item** with row selection + `+ / -` controls:
+  - `-` removes currently selected assigned row.
+  - `+` opens placeholder dialog ("not implemented yet" for custom assignment flow).
+- Assignment list box uses fixed height with vertical scrolling for long lists; item rows use smaller text and tighter spacing.
+- **Viewport click assignment** tied to expanded row:
+  - Expanded Power Source row => clicking object toggles assignment (`ObjectName`).
+  - Expanded Temperature row => clicking CAD face toggles assignment (`ObjectName:Face-N`).
+
+---
+
+## Milestone 7: Integration Adapter Layer (Local-first, Backend-ready) — PLANNED
+
+**Date added:** 2026-02-12
+
+### Goal
+- Introduce a stable integration contract between UI and domain logic now, while the massive backend is still in progress.
+- Keep current development velocity with a local adapter.
+- Enable a later backend switch with minimal/no UI handler rewrites.
+
+### Why now
+- Current BC/domain mutations are implemented directly in `app/ui/model_builder.py` via trame state.
+- This works for rapid iteration but increases long-term integration risk (state divergence, duplicated validation, harder sync before simulation).
+- Adapter-first migration gives a controlled write path and explicit sync points.
+
+### Target structure (inside this repo for now)
+```text
+integration/
+  __init__.py
+  dto.py                  # request/response payload models (typed contracts)
+  api.py                  # adapter interface / method signatures
+  local_adapter.py        # current implementation using local state + app.engine
+  factory.py              # get_adapter(mode="local" | "remote")
+  sync.py                 # sync policy helpers (dirty/unsynced flags, pre-run sync gate)
+```
+
+### Step plan
+| Step | Description | Status |
+|------|-------------|--------|
+| 1 | Add `integration/dto.py` contracts (OperationResult, BC requests/responses) | DONE |
+| 2 | Add `integration/api.py` interface for BC actions (`add/delete/rename/set/assign/unassign`) | DONE |
+| 3 | Add `integration/local_adapter.py` and wire current BC UI handlers to it | DONE |
+| 4 | Add local state sync markers (`project_dirty`, `project_unsynced`, `project_version`) | PENDING |
+| 5 | Add pre-run gate: simulation start must call adapter sync check first | PENDING |
+| 6 | Move BC validation/mutation rules out of UI file into engine/service helpers | PENDING |
+| 7 | Add contract tests for adapter methods (no UI) | PENDING |
+| 8 | Add `integration/remote_adapter.py` skeleton (same interface, `NOT_IMPLEMENTED`) | PENDING |
+| 9 | Switchable adapter factory (env/config driven) | PENDING |
+| 10 | Update docs (`AGENTS.md`, `CLAUDE.md`, `verification.md`) after adapter wiring | PENDING |
+
+### Initial method signatures (v1 contract)
+- `add_power_source(project_id, name=None) -> AddPowerSourceResponse`
+- `rename_power_source(project_id, power_source_id, new_name) -> OperationResult`
+- `delete_power_source(project_id, power_source_id) -> OperationResult`
+- `set_power_source_value(project_id, power_source_id, power_w_per_m) -> OperationResult`
+- `toggle_assign_power_source_object(project_id, power_source_id, object_name) -> OperationResult`
+- `add_temperature(project_id, name=None) -> AddTemperatureResponse`
+- `rename_temperature(project_id, temperature_id, new_name) -> OperationResult`
+- `delete_temperature(project_id, temperature_id) -> OperationResult`
+- `set_temperature_value(project_id, temperature_id, temperature_c) -> OperationResult`
+- `toggle_assign_temperature_surface(project_id, temperature_id, surface_name) -> OperationResult`
+- `get_boundary_config(project_id) -> BoundaryConfigResponse`
+- `sync_project_state(project_id) -> SyncResult`
+
+### Step 1-3 completion notes (2026-02-12)
+- Added new files:
+  - `integration/dto.py`
+  - `integration/api.py`
+  - `integration/local_adapter.py`
+  - `integration/__init__.py`
+- `app/ui/model_builder.py` BC mutation handlers now delegate through local adapter methods for:
+  - add/delete/rename item
+  - set numeric value
+  - assign/unassign object/surface
+  - remove selected assignment rows
+- Added adapter-focused tests:
+  - `tests/test_integration_dto.py`
+  - `tests/test_integration_api_contract.py`
+  - `tests/test_local_adapter.py`
+
+### Policy decisions
+- UI must call adapter methods for domain mutations (no direct trame-state mutation for BC business actions after migration).
+- Local adapter is authoritative during development; backend sync is required before simulation commands.
+- Simulation must run from a backend-acknowledged snapshot when remote backend is enabled.
+- Local-only edits must mark project as dirty/unsynced.
+
+### Out-of-scope for this milestone
+- Rewriting all non-BC modules at once.
+- Final transport protocol selection (REST/gRPC/message bus).
+- Full persistence redesign.
+  - Temperature assignment highlighting is **surface-only** (selected face), not whole-object highlight.
+- **Global exclusivity rules**:
+  - One object can belong to only one power source.
+  - One surface can belong to only one temperature.
+  - Conflict is rejected with log message (existing assignment kept).
+- **Delete item support** retained for both categories with icon-only light-gray trash button.
+
+**Implementation notes:**
+- `engine/geometry.py` now returns deterministic CAD face entries per object (`Face-1..N`) from face traversal order.
+- `viewer.py` renders per-face actors and resolves object/surface picks; fallback uses world-position nearest-centroid mapping for robust headless picks.
+- `model_builder.py` owns assignment state/control logic:
+  - active assignment context from expanded row
+  - toggle add/remove
+  - exclusivity checks
+  - input value updates
+
+**Screenshot Verification**
+
+| User Action | Before | After | Screenshot |
+|-------------|--------|-------|------------|
+| Expand Power Source 1 row | Collapsed item | Assignment box + `+/-` + Power input visible | `bc_power_source_expanded.png` |
+| Expand Temperature 1 row | Collapsed item | Assignment box + `+/-` + Temperature input visible | `bc_temperature_expanded.png` |
+| Click row text (Power Source/Temperature) | Row collapsed | Row expands (same behavior as chevron click) | `bc_power_source_expanded.png`, `bc_temperature_expanded.png` |
+| Click object while Power Source 1 expanded | No assignment | Object added; repeat click toggles off | `bc_power_source_assignment_exclusive.png` |
+| Click surface while Temperature 1 expanded | No assignment | Surface label `Object:Face-N` added; repeat click toggles off; selected face is highlighted | `bc_temperature_surface_assignment_exclusive.png` |
+| Try assigning same object/surface to second item | Already assigned to first | Rejected; second item list unchanged | `bc_power_source_assignment_exclusive.png`, `bc_temperature_surface_assignment_exclusive.png` |
+| Select assigned row + click `-` | Row selected | Row removed from list; list remains fixed-height/scrollable | `bc_temperature_surface_assignment_exclusive.png` |
+
+---
+
 ## Milestone 3: Build Sub-Model Pipeline — PENDING
 
 ## Milestone 4: Solving & Result Visualization — PENDING

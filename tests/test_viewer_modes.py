@@ -22,6 +22,56 @@ def _set(page, key, value):
     page.evaluate(f'window.trame.state.set("{key}", {val_js})')
 
 
+def _try_pick_any_object(page):
+    canvas = page.locator("canvas").first
+    bbox = canvas.bounding_box()
+    if bbox is None:
+        return None
+
+    positions = []
+    for rx in (0.30, 0.38, 0.46, 0.54, 0.62, 0.70):
+        for ry in (0.34, 0.42, 0.50, 0.58, 0.66):
+            positions.append((rx, ry))
+
+    for _ in range(3):
+        page.locator(".reset-view-btn").click()
+        page.wait_for_timeout(350)
+        for rx, ry in positions:
+            px = bbox["x"] + bbox["width"] * rx
+            py = bbox["y"] + bbox["height"] * ry
+            page.mouse.click(px, py)
+            page.wait_for_timeout(220)
+            selected = _get(page, "selected_object")
+            if selected:
+                return selected
+
+    # Force redraw from import node and retry once.
+    page.evaluate(
+        """() => {
+            const s = window.trame.state;
+            const imports = s.get("geometry_imports") || [];
+            if (imports.length > 0) {
+                const importId = imports[0].id;
+                s.set("geometry_expanded_import_id", importId);
+                s.set("active_node", null);
+                s.set("active_node", "geometry");
+            }
+        }"""
+    )
+    page.wait_for_timeout(800)
+    page.locator(".reset-view-btn").click()
+    page.wait_for_timeout(350)
+    for rx, ry in positions:
+        px = bbox["x"] + bbox["width"] * rx
+        py = bbox["y"] + bbox["height"] * ry
+        page.mouse.click(px, py)
+        page.wait_for_timeout(220)
+        selected = _get(page, "selected_object")
+        if selected:
+            return selected
+    return None
+
+
 def test_baseline_state(imported_geometry):
     """After importing geometry, default toggle states should be:
     edges=ON, semi-transparent=OFF, feature edges=ON, scene light=ON."""
@@ -70,21 +120,7 @@ def test_semi_transparent_with_selection(imported_geometry):
     page.locator(".toggle-semi-transparent").click()
     page.wait_for_timeout(300)
 
-    # Try clicking objects in the viewport to select one
-    canvas = page.locator("canvas").first
-    bbox = canvas.bounding_box()
-    positions = [
-        (bbox["x"] + bbox["width"] * 0.5, bbox["y"] + bbox["height"] * 0.5),
-        (bbox["x"] + bbox["width"] * 0.35, bbox["y"] + bbox["height"] * 0.35),
-        (bbox["x"] + bbox["width"] * 0.6, bbox["y"] + bbox["height"] * 0.5),
-    ]
-    for px, py in positions:
-        page.mouse.click(px, py)
-        page.wait_for_timeout(500)
-        if _get(page, "selected_object"):
-            break
-
-    selected = _get(page, "selected_object")
+    selected = _try_pick_any_object(page)
     assert selected, "Should be able to select an object by clicking in viewport"
 
     screenshot(page, "viewer_mode_semi_transparent_selected.png")

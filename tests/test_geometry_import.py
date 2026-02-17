@@ -22,9 +22,9 @@ def test_import_dialog_opens(page):
     screenshot(page, "geometry_import_dialog.png")
 
 
-def test_import_creates_tree_node(page):
-    """After importing a STEP file, 'Import 1' should appear as a child
-    node under Geometry in the Model Builder tree."""
+def test_import_creates_settings_row(page):
+    """After importing a STEP file, 'Import 1' should appear as a row
+    in the Settings panel under Geometry."""
     page.locator("text=Geometry").first.click()
     page.wait_for_timeout(500)
     page.get_by_text("Import STEP file...", exact=True).click()
@@ -36,14 +36,14 @@ def test_import_creates_tree_node(page):
     page.wait_for_timeout(5000)
 
     assert page.locator("text=Import 1").first.is_visible(), \
-        "'Import 1' should appear in the Model Builder tree"
+        "'Import 1' should appear in the Settings panel"
 
-    screenshot(page, "geometry_import_tree.png")
+    screenshot(page, "geometry_import_settings_row.png")
 
 
 def test_import_shows_objects_in_settings(page):
-    """Clicking 'Import 1' in the tree should show the 3 imported solid
-    objects (PCB_OUTLINE, CHIP, 3DVC) in the Settings panel."""
+    """After importing, the import row auto-expands showing the 3 imported
+    solid objects (PCB_OUTLINE, CHIP, 3DVC) in the Settings panel."""
     # Import the STEP file
     page.locator("text=Geometry").first.click()
     page.wait_for_timeout(500)
@@ -54,10 +54,7 @@ def test_import_shows_objects_in_settings(page):
     page.locator(".import-confirm-btn").click()
     page.wait_for_timeout(5000)
 
-    # Click the import node to see object list
-    page.locator("text=Import 1").first.click()
-    page.wait_for_timeout(1000)
-
+    # Import auto-expands — objects should already be visible
     for obj_name in ["PCB_OUTLINE", "CHIP", "3DVC"]:
         assert page.locator(f"text={obj_name}").first.is_visible(), \
             f"Object '{obj_name}' should be visible in Settings panel"

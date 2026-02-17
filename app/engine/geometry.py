@@ -60,7 +60,7 @@ def _collect_solids(shape_tool, label, parent_name="", parent_location=None):
 
 
 def _tessellate_shape(shape, assembly_location=None, linear_deflection=0.1):
-    """Tessellate a TopoDS_Shape and return (vertices, triangles).
+    """Tessellate a TopoDS_Shape and return (vertices, triangles, faces).
 
     Args:
         shape: the TopoDS_Shape to tessellate
@@ -70,6 +70,7 @@ def _tessellate_shape(shape, assembly_location=None, linear_deflection=0.1):
     Returns:
         vertices: list of (x, y, z) tuples
         triangles: list of (i0, i1, i2) index tuples
+        faces: list of face dicts with deterministic face index/label and local mesh
     """
     BRepMesh_IncrementalMesh(shape, linear_deflection)
 
@@ -80,10 +81,13 @@ def _tessellate_shape(shape, assembly_location=None, linear_deflection=0.1):
 
     vertices = []
     triangles = []
+    faces = []
     vertex_offset = 0
+    face_index = 0
 
     explorer = TopExp_Explorer(shape, TopAbs_FACE)
     while explorer.More():
+        face_index += 1
         face = TopoDS.Face_s(explorer.Current())
         location = TopLoc_Location()
         triangulation = BRep_Tool.Triangulation_s(face, location)
@@ -93,6 +97,8 @@ def _tessellate_shape(shape, assembly_location=None, linear_deflection=0.1):
             nb_nodes = triangulation.NbNodes()
             nb_tris = triangulation.NbTriangles()
 
+            face_vertices = []
+            face_triangles = []
             for i in range(1, nb_nodes + 1):
                 pnt = triangulation.Node(i)
                 # Apply face-level transform first (local placement)
@@ -100,7 +106,9 @@ def _tessellate_shape(shape, assembly_location=None, linear_deflection=0.1):
                 # Then apply assembly-level transform (global placement)
                 if assembly_trsf is not None:
                     pnt.Transform(assembly_trsf)
-                vertices.append((pnt.X(), pnt.Y(), pnt.Z()))
+                vertex_tuple = (pnt.X(), pnt.Y(), pnt.Z())
+                vertices.append(vertex_tuple)
+                face_vertices.append(vertex_tuple)
 
             for i in range(1, nb_tris + 1):
                 tri = triangulation.Triangle(i)
@@ -110,12 +118,20 @@ def _tessellate_shape(shape, assembly_location=None, linear_deflection=0.1):
                     i2 - 1 + vertex_offset,
                     i3 - 1 + vertex_offset,
                 ))
+                face_triangles.append((i1 - 1, i2 - 1, i3 - 1))
+
+            faces.append({
+                "face_index": face_index,
+                "label": f"Face-{face_index}",
+                "vertices": face_vertices,
+                "triangles": face_triangles,
+            })
 
             vertex_offset += nb_nodes
 
         explorer.Next()
 
-    return vertices, triangles
+    return vertices, triangles, faces
 
 
 def _extract_edges(shape, assembly_location=None, linear_deflection=0.1):
@@ -195,13 +211,14 @@ def parse_step_file(file_path):
         for solid_info in _collect_solids(shape_tool, free_labels.Value(i + 1)):
             shape = shape_tool.GetShape_s(solid_info["label"])
             location = solid_info.get("location")
-            vertices, triangles = _tessellate_shape(shape, location)
+            vertices, triangles, faces = _tessellate_shape(shape, location)
             edge_polylines = _extract_edges(shape, location)
             if vertices and triangles:
                 objects.append({
                     "name": solid_info["name"],
                     "vertices": vertices,
                     "triangles": triangles,
+                    "faces": faces,
                     "edges": edge_polylines,
                 })
 
