@@ -37,3 +37,4 @@ python tests/test_screenshots.py
 ```
 
 Screenshots are saved to the `screenshots/` folder.
+# finmosa
