@@ -128,6 +128,105 @@ def create_settings_panel(server):
                                     __properties=[("v_bind_active", ":active")],
                                 )
 
+        # Materials — direct apply TXT import through integration adapter
+        with v3.VCardText(v_if="active_node === 'materials'"):
+            v3.VCardTitle(
+                "Material Properties",
+                classes="text-subtitle-1 font-weight-bold pa-0 mb-2",
+            )
+            with html_widgets.Div(classes="mb-2"):
+                v3.VTextField(
+                    v_model=("materials_import_file_path",),
+                    label="Material TXT file path",
+                    placeholder="/path/to/material.txt",
+                    variant="outlined",
+                    density="compact",
+                    hide_details=True,
+                    classes="materials-file-path",
+                )
+            with html_widgets.Div(
+                style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px;",
+            ):
+                v3.VBtn(
+                    "Import Materials TXT",
+                    prepend_icon="mdi-file-upload-outline",
+                    variant="tonal",
+                    color="primary",
+                    density="compact",
+                    classes="materials-import-btn",
+                    click=(server.controller.import_materials_file, "[materials_import_file_path]"),
+                )
+                v3.VBtn(
+                    "Refresh",
+                    prepend_icon="mdi-refresh",
+                    variant="text",
+                    density="compact",
+                    classes="materials-refresh-btn",
+                    click=(server.controller.refresh_materials, "[]"),
+                )
+
+            with v3.VAlert(
+                v_if="materials_last_result",
+                type="info",
+                variant="tonal",
+                density="compact",
+                classes="mb-2",
+            ):
+                html_widgets.Span("{{ materials_last_result }}")
+
+            with v3.VAlert(
+                v_if="materials_warnings && materials_warnings.length > 0",
+                type="warning",
+                variant="tonal",
+                density="compact",
+                classes="mb-2",
+            ):
+                html_widgets.Div(
+                    "Warnings ({{ materials_warnings.length }}):",
+                    classes="text-caption font-weight-bold mb-1",
+                )
+                with v3.VList(density="compact"):
+                    with html_widgets.Template(
+                        v_for="(warn, widx) in materials_warnings",
+                        __properties=[("v_for", "v-for")],
+                    ):
+                        v3.VListItem(
+                            v_bind_title=(
+                                "'Line ' + warn.line + ': ' + warn.reason "
+                                "+ (warn.raw ? ' | ' + warn.raw : '')"
+                            ),
+                            density="compact",
+                            classes="materials-warning-row",
+                        )
+
+            html_widgets.Div(
+                "Canonical Materials",
+                classes="text-caption font-weight-bold mb-1",
+            )
+            with html_widgets.Div(
+                style="border: 1px solid #e0e0e0; border-radius: 6px; overflow: hidden;",
+            ):
+                with v3.VTable(density="compact"):
+                    with html_widgets.Thead():
+                        with html_widgets.Tr():
+                            html_widgets.Th("Name")
+                            html_widgets.Th("kx")
+                            html_widgets.Th("ky")
+                            html_widgets.Th("kz")
+                    with html_widgets.Tbody():
+                        with html_widgets.Template(
+                            v_for="(mat, midx) in materials_items",
+                            __properties=[("v_for", "v-for")],
+                        ):
+                            with html_widgets.Tr():
+                                html_widgets.Td("{{ mat.name }}")
+                                html_widgets.Td("{{ mat.kx }}")
+                                html_widgets.Td("{{ mat.ky }}")
+                                html_widgets.Td("{{ mat.kz }}")
+                        with html_widgets.Tr(v_if="!materials_items || materials_items.length === 0"):
+                            with html_widgets.Td(colspan="4", style="text-align: center; color: #777;"):
+                                html_widgets.Span("No materials loaded")
+
         # Power Source category — list with inline rename + Add button
         with v3.VCardText(v_if="active_node === 'bc_power_source'"):
             v3.VCardTitle(
@@ -423,6 +522,7 @@ def create_settings_panel(server):
             v_if=(
                 "active_node && active_node !== 'geometry'"
                 " && active_node !== 'bc_power_source' && active_node !== 'bc_temperature'"
+                " && active_node !== 'materials'"
                 " && settings_content[active_node]"
             ),
         ):

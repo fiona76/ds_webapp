@@ -4,6 +4,15 @@
 - Define expected user-visible behavior for current UI features.
 - Serve as the detailed behavior reference for development and regression verification.
 
+## Link Entry and Project Start
+- The app is intended to be accessed from a shared link.
+- After opening the link, users see a project start prompt with:
+  - `Create New Project`
+  - `Open Saved Project`
+- First-time users (no saved project yet) can create a new blank project and continue. They can save it later.
+- Returning users can open a saved project to resume from their previous state.
+- Once a new blank project is created, the standard layout and panel behavior below applies.
+
 ## Layout and Panels
 - Top menu has `File` (New, Open, Save, Save As) and `Edit` (Undo, Redo, Select All, Clear Selection).
 - Left side contains `Model Builder` and `Settings` (collapsible together).
@@ -25,16 +34,41 @@
   - `Temperature`
 - BC items (`Power Source 1..N`, `Temperature 1..N`) are managed in Settings only — they do NOT appear as tree children.
 
-## Geometry Import
-- Import uses a server-side file browser dialog (not a simple text field):
+## Geometry Sources and Import
+- Geometry loading supports two user paths:
+  - `Demo geometry` provided by the app (example models for quick start/demo).
+  - `Local upload` from the user's machine (STEP/STP now, extensible to additional formats later).
+- Current local-development flow may use the existing server-side file browser dialog:
   - Path bar at top with editable text field and up-arrow button for parent directory.
-  - Directory listing shows folders (`mdi-folder`) and `.step`/`.stp` files (`mdi-file-cad-box`). Sorted: directories first, then files. Hidden files excluded.
+  - Directory listing shows folders (`mdi-folder`) and supported geometry files (`mdi-file-cad-box`). Sorted: directories first, then files. Hidden files excluded.
   - Click a folder to navigate into it. Click a file to select it (highlighted blue).
   - "Selected:" label at bottom shows full path. Import button disabled until a file is selected.
-- On successful import:
+- On successful geometry load:
   - `Import N` appears as expandable row in Geometry Settings.
   - Geometry renders in viewport when the import row is expanded.
-  - Settings shows file info and object list (e.g., PCB_OUTLINE, CHIP, 3DVC).
+  - Settings shows source info and object list (e.g., PCB_OUTLINE, CHIP, 3DVC).
+
+## Materials Workflow
+- `Materials` node supports two creation paths:
+  - `Create Blank Material` and then fill in catalog + property values.
+  - `Load Default Material` and then edit values for the current project.
+- Material editing behavior:
+  - Users can create multiple materials in one project.
+  - Each material stores catalog metadata and material properties (including thermal conductivity fields such as `kx`, `ky`, `kz`).
+  - Loaded default materials are editable; project edits do not mutate the global default library.
+- Materials are project-scoped and included in project save/load.
+- Result/status summary is shown in Settings and written to Log panel.
+
+## Project Save and Resume
+- Project save persists enough information to restore the same progress later.
+- Saved content includes:
+  - Geometry source references (path to local geometry or pointer to demo geometry).
+  - Materials JSON (current material definitions from Materials workflow).
+  - Netlist data.
+  - Geometry processing data (`geom`).
+  - Boundary condition data (`BC`).
+  - Simulation result artifact (`VTM`) when available.
+- Opening a saved project restores the same workflow state so users can continue where they left off.
 
 ## Boundary Condition Settings
 
@@ -98,15 +132,18 @@ Mesh edges (icon 1) and feature edges (icon 3) are different: icon 1 shows trian
 - **Reset view button** (`mdi-fit-to-screen-outline`) at bottom-left of viewport. Resets camera to fit all geometry.
 
 ## User Workflow
-1. **File > New** — start a new project.
-2. **Geometry import** — import 1..N STEP files. Each appears as `Import 1`, `Import 2`, … in Geometry Settings.
-3. **Object settings** — expand an import row; Settings shows object list with material assignment.
-4. **Materials** — adjust per-material thermal conductivity (kx/ky/kz). JSON import for bulk properties.
-5. **Boundary Conditions** — click Power Source or Temperature, add items, assign objects/surfaces via viewport.
-6. **Modelization** — choose parameters for sub-model partitioning.
-7. **Build Sub-Model** — FVM or AI model generation. Mesh is automatic.
-8. **Solving** — click Run.
-9. **Result** — select a simulation; VTU renders in viewport.
+1. **Open shared link** — user lands in project start prompt.
+2. **Start project** — choose `Create New Project` (first-time path) or `Open Saved Project` (resume path).
+3. **New project path** — creating a blank project opens the standard layout and panels.
+4. **Geometry load** — add geometry from demo examples or local upload/import. Imports appear as `Import 1`, `Import 2`, ... in Geometry Settings.
+5. **Object settings** — expand an import row; Settings shows object list with material assignment.
+6. **Materials** — create blank materials or load default materials, then edit catalog/properties.
+7. **Boundary Conditions** — click Power Source or Temperature, add items, assign objects/surfaces via viewport.
+8. **Modelization** — choose parameters for sub-model partitioning.
+9. **Build Sub-Model** — FVM or AI model generation. Mesh is automatic.
+10. **Solving** — click Run.
+11. **Result** — select a simulation; VTU renders in viewport.
+12. **Save project** — persist geometry references, materials JSON, netlist, geom, BC, and VTM so reopening restores the same progress.
 
 ## Verification Mapping
 - Automated behavior checks are maintained in `tests/` (Playwright + adapter tests).

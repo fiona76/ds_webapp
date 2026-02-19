@@ -4,6 +4,26 @@ Trame-based web app for thermal-stress simulation. Sub-models are generated once
 
 **Tech stack:** Python, trame, VTK/vtk.js, OCP (STEP import).
 
+## Product flow contract (shared-link entry)
+
+- Primary usage starts when a user opens a shared link.
+- First screen is a project-start prompt:
+  - `Create New Project`
+  - `Open Saved Project`
+- First-time users can start with a blank project and save later. Returning users can open a saved project to continue.
+- After a new blank project is created, the working layout/panels follow `ui_behavior.md`.
+- Geometry input supports both demo examples and user-provided local geometry.
+- Materials flow supports:
+  - creating blank materials and filling catalog/properties
+  - loading default materials and editing them for the project
+- Project save/load must preserve resume fidelity. Saved payload includes:
+  - geometry source reference(s) (local path or demo pointer)
+  - materials JSON
+  - netlist
+  - `geom`
+  - boundary conditions (`BC`)
+  - simulation result artifact (`VTM`) when available
+
 ## How to run
 
 ```bash

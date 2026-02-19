@@ -4,6 +4,8 @@ from integration.dto import (
     AddPowerSourceResponse,
     AddTemperatureResponse,
     BoundaryConfigResponse,
+    MaterialsImportResponse,
+    MaterialsListResponse,
     OperationResult,
     SyncResult,
 )
@@ -49,3 +51,8 @@ class IntegrationAPI(Protocol):
     def sync_project_state(self, project_id: str) -> SyncResult:
         ...
 
+    def import_materials_file(self, project_id: str, file_path: str) -> MaterialsImportResponse:
+        ...
+
+    def get_materials(self, project_id: str) -> MaterialsListResponse:
+        ...

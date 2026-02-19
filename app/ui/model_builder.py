@@ -1,7 +1,7 @@
 from trame.widgets import vuetify3 as v3, html as html_widgets
 
 from app.engine.geometry import import_step_file
-from integration.local_adapter import LocalIntegrationAdapter
+from integration.factory import create_integration_adapter
 
 # Top-level tree nodes (static)
 MODEL_BUILDER_NODES = [
@@ -42,12 +42,16 @@ def create_model_builder(server):
     state.bc_selection_anchor_index = -1
     state.show_bc_add_placeholder = False
     state.bc_add_placeholder_message = ""
+    state.materials_import_file_path = ""
+    state.materials_items = []
+    state.materials_warnings = []
+    state.materials_last_result = ""
 
     # Server-side storage for mesh data (not in trame state — too large)
     _geometry_meshes = {}  # import_id -> list of object dicts with vertices/triangles
 
     # Integration adapter — all BC business logic delegates here
-    _adapter = LocalIntegrationAdapter(state)
+    _adapter = create_integration_adapter(state)
     _PROJECT_ID = "default"
 
     # Guard flag: when True, suppress automatic highlight_object() calls
@@ -88,6 +92,8 @@ def create_model_builder(server):
             # No geometry rebuild, but still need to push style changes
             if hasattr(server.controller, "highlight_object"):
                 server.controller.highlight_object()
+        if active_node == "materials":
+            refresh_materials()
         _batch_updating = False
 
     @state.change("selected_object", "selected_surface")
@@ -166,6 +172,79 @@ def create_model_builder(server):
             _log(f"[BC] Added {response.item['name']}")
         else:
             _log(f"[BC] Error adding temperature: {response.result.message}")
+
+    def _set_materials_state(materials, warnings, status_message):
+        normalized_materials = []
+        for item in (materials or []):
+            if isinstance(item, dict):
+                normalized_materials.append(
+                    {
+                        "name": item.get("name", ""),
+                        "kx": float(item.get("kx", 0.0)),
+                        "ky": float(item.get("ky", 0.0)),
+                        "kz": float(item.get("kz", 0.0)),
+                    }
+                )
+            else:
+                normalized_materials.append(
+                    {
+                        "name": getattr(item, "name", ""),
+                        "kx": float(getattr(item, "kx", 0.0)),
+                        "ky": float(getattr(item, "ky", 0.0)),
+                        "kz": float(getattr(item, "kz", 0.0)),
+                    }
+                )
+
+        normalized_warnings = []
+        for item in (warnings or []):
+            if isinstance(item, dict):
+                normalized_warnings.append(
+                    {
+                        "line": int(item.get("line", 0)),
+                        "reason": item.get("reason", ""),
+                        "raw": item.get("raw", ""),
+                    }
+                )
+            else:
+                normalized_warnings.append(
+                    {
+                        "line": int(getattr(item, "line", 0)),
+                        "reason": getattr(item, "reason", ""),
+                        "raw": getattr(item, "raw", ""),
+                    }
+                )
+
+        state.materials_items = normalized_materials
+        state.materials_warnings = normalized_warnings
+        state.materials_last_result = status_message
+
+    def import_materials_file(file_path):
+        path = (file_path or "").strip()
+        if not path:
+            _log("[Materials] Material file path is required")
+            state.materials_last_result = "Material file path is required"
+            return
+
+        response = _adapter.import_materials_file(_PROJECT_ID, path)
+        if response.result.ok:
+            message = (
+                f"Imported materials from {path} "
+                f"(created={response.created_count}, updated={response.updated_count}, "
+                f"warnings={len(response.warnings)})"
+            )
+            _set_materials_state(response.materials, response.warnings, message)
+            _log(f"[Materials] {message}")
+        else:
+            _set_materials_state(response.materials, response.warnings, response.result.message or "Import failed")
+            _log(f"[Materials] Import error: {response.result.message}")
+
+    def refresh_materials():
+        response = _adapter.get_materials(_PROJECT_ID)
+        if response.result.ok:
+            _set_materials_state(response.materials, [], "Materials loaded")
+            _log(f"[Materials] Loaded {len(response.materials)} material rows")
+        else:
+            _log(f"[Materials] Load error: {response.result.message}")
 
     def _clear_assignment_focus():
         state.bc_active_assignment_type = ""
@@ -410,6 +489,8 @@ def create_model_builder(server):
     server.controller.set_bc_item_value = set_bc_item_value
     server.controller.toggle_assign_power_source_object = toggle_assign_power_source_object
     server.controller.toggle_assign_temperature_surface = toggle_assign_temperature_surface
+    server.controller.import_materials_file = import_materials_file
+    server.controller.refresh_materials = refresh_materials
 
     with v3.VCard(
         classes="fill-height",

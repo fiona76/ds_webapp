@@ -22,5 +22,11 @@ BC_TEMPERATURES = "bc_temperatures"                    # list of {id, name}
 BC_POWER_SOURCE_COUNTER = "bc_power_source_counter"    # int, auto-increment
 BC_TEMPERATURE_COUNTER = "bc_temperature_counter"      # int, auto-increment
 
+# Materials
+MATERIALS_IMPORT_FILE_PATH = "materials_import_file_path"  # string path to txt file
+MATERIALS_ITEMS = "materials_items"                        # canonical list of materials
+MATERIALS_WARNINGS = "materials_warnings"                  # parser warning list
+MATERIALS_LAST_RESULT = "materials_last_result"            # latest status message
+
 # Log
 LOG_MESSAGES = "log_messages"
