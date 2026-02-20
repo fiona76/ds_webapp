@@ -60,39 +60,22 @@ def test_remove_selected_assignment_and_sync():
     assert state.project_unsynced is False
 
 
-def test_material_import_upsert_and_warning(tmp_path):
+def test_list_default_materials_returns_not_available():
     state = _new_state()
     adapter = LocalIntegrationAdapter(state)
-    material_file = tmp_path / "materials.txt"
-    material_file.write_text(
-        "name,kx,ky,kz\n"
-        "Cu,390,390,390\n"
-        "BadRow\n"
-        "Cu,401,401,401\n"
-        "Silicon,148,148,148\n",
-        encoding="utf-8",
-    )
 
-    response = adapter.import_materials_file("project_1", str(material_file))
-
-    assert response.result.ok is True
-    assert response.created_count == 2
-    assert response.updated_count == 0
-    assert len(response.materials) == 2
-    assert len(response.warnings) >= 2
-    cu = next(item for item in response.materials if item.name.casefold() == "cu")
-    assert cu.kx == 401.0
-    assert state.project_unsynced is True
-
-
-def test_material_import_all_invalid_returns_validation_error(tmp_path):
-    state = _new_state()
-    adapter = LocalIntegrationAdapter(state)
-    bad_file = tmp_path / "bad.txt"
-    bad_file.write_text("name,kx,ky,kz\nBadRow\n,1,2,3\n", encoding="utf-8")
-
-    response = adapter.import_materials_file("project_1", str(bad_file))
+    response = adapter.list_default_materials()
 
     assert response.result.ok is False
-    assert response.result.error_code == "VALIDATION_ERROR"
-    assert len(response.materials) == 0
+    assert response.result.error_code == "NOT_AVAILABLE"
+    assert response.names == []
+
+
+def test_get_default_material_returns_not_available():
+    state = _new_state()
+    adapter = LocalIntegrationAdapter(state)
+
+    response = adapter.get_default_material("SiO2")
+
+    assert response.result.ok is False
+    assert response.result.error_code == "NOT_AVAILABLE"

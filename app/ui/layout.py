@@ -16,6 +16,11 @@ def create_layout(server):
     state.show_left_panels = True
     state.show_settings = True
     state.show_log_panel = True
+    state.model_builder_width = 220
+    state.settings_width = 280
+    state.dragging_handle = None
+    state.drag_start_x = 0
+    state.drag_start_width = 0
     state.log_messages = ["[System] Application started."]
     state.active_node = None
     state.file_menu_action = None
@@ -98,23 +103,33 @@ def create_layout(server):
         ):
             # Model Builder panel (visible when left panels are open)
             with html_widgets.Div(
-                style="display: flex; flex-direction: column; border-right: 1px solid #e0e0e0;",
                 v_show="show_left_panels",
+                style="display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0;",
+                v_bind_style=("{ width: model_builder_width + 'px' }",),
             ):
-                with html_widgets.Div(
-                    style="width: 220px; flex: 1 1 auto; overflow: hidden; display: flex; flex-direction: column;",
-                ):
-                    create_model_builder(server)
+                create_model_builder(server)
+
+            # Drag handle between Model Builder and Settings panels
+            html_widgets.Div(
+                v_show="show_left_panels && show_settings",
+                style="width: 5px; flex: 0 0 5px; cursor: col-resize; background: #e0e0e0; z-index: 10; user-select: none;",
+                mousedown="dragging_handle = 'mb'; drag_start_x = $event.clientX; drag_start_width = model_builder_width; $event.preventDefault()",
+            )
 
             # Settings panel (visible when left panels are open AND settings toggled on)
             with html_widgets.Div(
-                style="display: flex; flex-direction: column; border-right: 1px solid #e0e0e0;",
                 v_show="show_left_panels && show_settings",
+                style="display: flex; flex-direction: column; overflow: hidden; flex-shrink: 0;",
+                v_bind_style=("{ width: settings_width + 'px' }",),
             ):
-                with html_widgets.Div(
-                    style="width: 280px; flex: 1 1 auto; overflow: hidden; display: flex; flex-direction: column;",
-                ):
-                    create_settings_panel(server)
+                create_settings_panel(server)
+
+            # Drag handle between Settings panel and Viewport
+            html_widgets.Div(
+                v_show="show_left_panels && show_settings",
+                style="width: 5px; flex: 0 0 5px; cursor: col-resize; background: #e0e0e0; z-index: 10; user-select: none;",
+                mousedown="dragging_handle = 'settings'; drag_start_x = $event.clientX; drag_start_width = settings_width; $event.preventDefault()",
+            )
 
             # Center viewport
             with html_widgets.Div(
@@ -300,3 +315,16 @@ def create_layout(server):
                         disabled=("!import_file_path",),
                         classes="import-confirm-btn",
                     )
+
+        # Transparent overlay active during panel resize drag — prevents
+        # mouse events reaching the VTK viewport or other elements mid-drag
+        html_widgets.Div(
+            v_show="dragging_handle",
+            style="position: fixed; inset: 0; z-index: 9999; cursor: col-resize; user-select: none;",
+            mousemove=(
+                "dragging_handle === 'mb'"
+                " ? (model_builder_width = Math.max(120, Math.min(500, drag_start_width + $event.clientX - drag_start_x)))"
+                " : (settings_width = Math.max(120, Math.min(600, drag_start_width + $event.clientX - drag_start_x)))"
+            ),
+            mouseup="dragging_handle = null",
+        )

@@ -6,9 +6,6 @@
 
 ## Link Entry and Project Start
 - The app is intended to be accessed from a shared link.
-- After opening the link, users see a project start prompt with:
-  - `Create New Project`
-  - `Open Saved Project`
 - First-time users (no saved project yet) can create a new blank project and continue. They can save it later.
 - Returning users can open a saved project to resume from their previous state.
 - Once a new blank project is created, the standard layout and panel behavior below applies.
@@ -49,26 +46,53 @@
   - Settings shows source info and object list (e.g., PCB_OUTLINE, CHIP, 3DVC).
 
 ## Materials Workflow
-- `Materials` node supports two creation paths:
-  - `Create Blank Material` and then fill in catalog + property values.
-  - `Load Default Material` and then edit values for the current project.
-- Material editing behavior:
-  - Users can create multiple materials in one project.
-  - Each material stores catalog metadata and material properties (including thermal conductivity fields such as `kx`, `ky`, `kz`).
-  - Loaded default materials are editable; project edits do not mutate the global default library.
-- Materials are project-scoped and included in project save/load.
-- Result/status summary is shown in Settings and written to Log panel.
 
-## Project Save and Resume
-- Project save persists enough information to restore the same progress later.
-- Saved content includes:
-  - Geometry source references (path to local geometry or pointer to demo geometry).
-  - Materials JSON (current material definitions from Materials workflow).
-  - Netlist data.
-  - Geometry processing data (`geom`).
-  - Boundary condition data (`BC`).
-  - Simulation result artifact (`VTM`) when available.
-- Opening a saved project restores the same workflow state so users can continue where they left off.
+### Tree structure
+- `Materials` is a collapsible node in Model Builder (same pattern as Geometry and Boundary Condition).
+- Expanding `Materials` reveals two action items:
+  - `Create Blank Material` — immediately adds a new empty material to the project and switches Settings to the materials list.
+  - `Add Material from Default` — immediately bulk-loads all default materials from the redrock library into the project, then switches Settings to the materials list.
+
+### Settings: Materials (`active_node === 'materials'`)
+- Shows the list of all project materials (blank and default-loaded).
+- Each material is a collapsible row (name + chevron), same expand/collapse pattern as Power Source items.
+- Status message shown below the list when an action succeeds or fails.
+
+#### Inline rename
+- Double-click a material name to edit it inline (same pattern as BC item rename).
+- Enter or blur commits the new name.
+
+#### Expanded property rows
+Each property is shown as one or more labeled input rows. Property names have underscores replaced with spaces and the first letter capitalised (e.g. `thermal_conductivity` → `Thermal conductivity`).
+
+- **Scalar property** — one row:
+  ```
+  Density :  [2320]  kg/m^3
+  ```
+- **Tensor property (orthotropic, 3 components)** — three rows:
+  ```
+  Thermal conductivity - x :  [131]  W/(m*K)
+  Thermal conductivity - y :  [131]  W/(m*K)
+  Thermal conductivity - z :  [131]  W/(m*K)
+  ```
+- **Dimensionless property** (e.g. `poissons_ratio`) — no units label shown.
+- Values are editable number inputs; changes are committed on blur.
+- Units are read-only labels.
+
+### Add Material from Default behavior
+- All default materials are loaded in one bulk API call.
+- If a default material has the same name as an existing project material, it is silently skipped (existing is kept). The log panel records which names were skipped.
+- Future: a conflict dialog will let users choose per-conflict whether to keep existing or replace.
+
+### Create Blank Material behavior
+- Adds a new material with a generated placeholder name (e.g. `Material 1`, `Material 2`, ...).
+- All catalog properties are shown immediately as empty input rows, ready for the user to fill in.
+- The material name can be changed via double-click inline rename.
+
+### General behavior
+- Users can have multiple materials in one project.
+- Loaded default materials are copied into project scope; edits do not mutate the global default library.
+- Materials are project-scoped and included in project save/load.
 
 ## Boundary Condition Settings
 
@@ -115,21 +139,34 @@
 - When no BC assignment item is active, assignment highlight context is cleared.
 - When switching from BC to Geometry, BC highlight must be fully cleared before any new geometry selection.
 
+
+## Project Save and Resume
+- Project save persists enough information to restore the same progress later.
+- Saved content includes:
+  - Geometry source references (path to local geometry or pointer to demo geometry).
+  - Materials JSON (current material definitions from Materials workflow).
+  - Netlist data.
+  - Geometry processing data (`geom`).
+  - Boundary condition data (`BC`).
+  - Simulation result artifact (`VTM`) when available.
+- Opening a saved project restores the same workflow state so users can continue where they left off.
+
+
 ## Viewport Toolbar
 
 Four independent display mode toggles (any combination valid):
 
-| Icon | State Key | Default | Behavior |
-|------|-----------|---------|----------|
-| `mdi-grid` | `viewer_show_edges` | ON | Triangle mesh edge visibility on surfaces |
-| `mdi-circle-half-full` | `viewer_semi_transparent` | OFF | 40% opacity on surfaces. With selection: selected object stays 100%, others 40% |
-| `mdi-cube-outline` | `viewer_wireframe` | ON | CAD feature edge line actors (real BRep edges, not mesh wireframe) |
-| `mdi-lightbulb-outline` | `viewer_scene_light` | ON | ON = shaded (ambient 0.2, diffuse 0.8). OFF = flat (ambient 1.0, diffuse 0.0) |
+| Icon | Default | Behavior |
+|------|---------|----------|
+| `mdi-grid` | ON | Triangle mesh edge visibility on surfaces |
+| `mdi-circle-half-full` | OFF | 40% opacity on surfaces. With selection: selected object stays 100%, others 40% |
+| `mdi-cube-outline` | ON | CAD feature edge line actors (real BRep edges, not mesh wireframe) |
+| `mdi-lightbulb-outline` | ON | ON = shaded (ambient 0.2, diffuse 0.8). OFF = flat (ambient 1.0, diffuse 0.0) |
 
 Mesh edges (icon 1) and feature edges (icon 3) are different: icon 1 shows triangulation mesh on surfaces, icon 3 shows actual CAD boundary edges as separate line actors.
 
 ## Viewport Controls
-- **Reset view button** (`mdi-fit-to-screen-outline`) at bottom-left of viewport. Resets camera to fit all geometry.
+- **Reset view button** ok,at bottom-left of viewport. Resets camera to fit all geometry.
 
 ## User Workflow
 1. **Open shared link** — user lands in project start prompt.

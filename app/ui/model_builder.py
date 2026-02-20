@@ -42,9 +42,12 @@ def create_model_builder(server):
     state.bc_selection_anchor_index = -1
     state.show_bc_add_placeholder = False
     state.bc_add_placeholder_message = ""
-    state.materials_import_file_path = ""
+    state.materials_catalog = []
     state.materials_items = []
-    state.materials_warnings = []
+    state.materials_expanded_item = ""
+    state.materials_editing_id = ""
+    state.materials_editing_name = ""
+    state.materials_counter = 0
     state.materials_last_result = ""
 
     # Server-side storage for mesh data (not in trame state — too large)
@@ -92,8 +95,6 @@ def create_model_builder(server):
             # No geometry rebuild, but still need to push style changes
             if hasattr(server.controller, "highlight_object"):
                 server.controller.highlight_object()
-        if active_node == "materials":
-            refresh_materials()
         _batch_updating = False
 
     @state.change("selected_object", "selected_surface")
@@ -173,78 +174,105 @@ def create_model_builder(server):
         else:
             _log(f"[BC] Error adding temperature: {response.result.message}")
 
-    def _set_materials_state(materials, warnings, status_message):
-        normalized_materials = []
-        for item in (materials or []):
-            if isinstance(item, dict):
-                normalized_materials.append(
-                    {
-                        "name": item.get("name", ""),
-                        "kx": float(item.get("kx", 0.0)),
-                        "ky": float(item.get("ky", 0.0)),
-                        "kz": float(item.get("kz", 0.0)),
-                    }
-                )
-            else:
-                normalized_materials.append(
-                    {
-                        "name": getattr(item, "name", ""),
-                        "kx": float(getattr(item, "kx", 0.0)),
-                        "ky": float(getattr(item, "ky", 0.0)),
-                        "kz": float(getattr(item, "kz", 0.0)),
-                    }
-                )
-
-        normalized_warnings = []
-        for item in (warnings or []):
-            if isinstance(item, dict):
-                normalized_warnings.append(
-                    {
-                        "line": int(item.get("line", 0)),
-                        "reason": item.get("reason", ""),
-                        "raw": item.get("raw", ""),
-                    }
-                )
-            else:
-                normalized_warnings.append(
-                    {
-                        "line": int(getattr(item, "line", 0)),
-                        "reason": getattr(item, "reason", ""),
-                        "raw": getattr(item, "raw", ""),
-                    }
-                )
-
-        state.materials_items = normalized_materials
-        state.materials_warnings = normalized_warnings
-        state.materials_last_result = status_message
-
-    def import_materials_file(file_path):
-        path = (file_path or "").strip()
-        if not path:
-            _log("[Materials] Material file path is required")
-            state.materials_last_result = "Material file path is required"
+    def _ensure_catalog_loaded():
+        if state.materials_catalog:
             return
-
-        response = _adapter.import_materials_file(_PROJECT_ID, path)
+        response = _adapter.get_materials_catalog()
         if response.result.ok:
-            message = (
-                f"Imported materials from {path} "
-                f"(created={response.created_count}, updated={response.updated_count}, "
-                f"warnings={len(response.warnings)})"
-            )
-            _set_materials_state(response.materials, response.warnings, message)
-            _log(f"[Materials] {message}")
-        else:
-            _set_materials_state(response.materials, response.warnings, response.result.message or "Import failed")
-            _log(f"[Materials] Import error: {response.result.message}")
+            state.materials_catalog = [
+                {"name": p.name, "kind": p.kind, "default_units": p.default_units, "symmetry": p.symmetry}
+                for p in response.properties
+            ]
 
-    def refresh_materials():
-        response = _adapter.get_materials(_PROJECT_ID)
-        if response.result.ok:
-            _set_materials_state(response.materials, [], "Materials loaded")
-            _log(f"[Materials] Loaded {len(response.materials)} material rows")
-        else:
-            _log(f"[Materials] Load error: {response.result.message}")
+    def create_blank_material():
+        _ensure_catalog_loaded()
+        state.materials_counter = (state.materials_counter or 0) + 1
+        name = f"Material {state.materials_counter}"
+        # Pre-populate all catalog properties as empty constant slots
+        properties = {}
+        for prop in (state.materials_catalog or []):
+            if prop["kind"] == "tensor" and prop.get("symmetry") == "orthotropic":
+                properties[prop["name"]] = {"type": "constant", "value": [None, None, None], "units": prop["default_units"]}
+            else:
+                properties[prop["name"]] = {"type": "constant", "value": None, "units": prop["default_units"]}
+        state.materials_items = (state.materials_items or []) + [
+            {"name": name, "properties": properties}
+        ]
+        state.active_node = "materials"
+        state.materials_last_result = f"Created '{name}'"
+        _log(f"[Materials] Created blank material '{name}'")
+
+    def load_all_default_materials():
+        _ensure_catalog_loaded()
+        response = _adapter.list_default_materials_full()
+        if not response.result.ok:
+            state.materials_last_result = response.result.message
+            _log(f"[Materials] {response.result.message}")
+            return
+        existing_names = {m["name"] for m in (state.materials_items or [])}
+        added, skipped = [], []
+        for mat in response.materials:
+            if mat["name"] in existing_names:
+                skipped.append(mat["name"])
+            else:
+                added.append({"name": mat["name"], "properties": mat["properties"]})
+                existing_names.add(mat["name"])
+        state.materials_items = (state.materials_items or []) + added
+        state.active_node = "materials"
+        msg = f"Loaded {len(added)} default material(s)"
+        if skipped:
+            msg += f"; skipped {len(skipped)} conflict(s): {', '.join(skipped)}"
+        state.materials_last_result = msg
+        _log(f"[Materials] {msg}")
+
+    def toggle_material_expanded(name):
+        state.materials_expanded_item = "" if state.materials_expanded_item == name else name
+
+    def start_material_rename(name):
+        state.materials_editing_id = name
+        state.materials_editing_name = name
+
+    def finish_material_rename(new_name):
+        old_name = state.materials_editing_id
+        new_name = (new_name or "").strip()
+        state.materials_editing_id = ""
+        state.materials_editing_name = ""
+        if not new_name or new_name == old_name:
+            return
+        existing_names = [m["name"] for m in (state.materials_items or [])]
+        if new_name in existing_names:
+            state.materials_last_result = f"A material named '{new_name}' already exists"
+            return
+        state.materials_items = [
+            {**m, "name": new_name} if m["name"] == old_name else m
+            for m in (state.materials_items or [])
+        ]
+        if state.materials_expanded_item == old_name:
+            state.materials_expanded_item = new_name
+        _log(f"[Materials] Renamed '{old_name}' to '{new_name}'")
+
+    def set_material_property_value(mat_name, prop_name, component_index, raw_value):
+        """Update one scalar value or one tensor component (component_index -1 = scalar)."""
+        try:
+            value = float(raw_value) if raw_value not in (None, "", "null") else None
+        except (ValueError, TypeError):
+            return
+        updated_items = []
+        for mat in (state.materials_items or []):
+            if mat["name"] != mat_name:
+                updated_items.append(mat)
+                continue
+            props = {**mat["properties"]}
+            prop = {**props.get(prop_name, {"type": "constant", "units": ""})}
+            if component_index == -1:
+                prop["value"] = value
+            else:
+                current = list(prop.get("value") or [None, None, None])
+                current[component_index] = value
+                prop["value"] = current
+            props[prop_name] = prop
+            updated_items.append({**mat, "properties": props})
+        state.materials_items = updated_items
 
     def _clear_assignment_focus():
         state.bc_active_assignment_type = ""
@@ -489,8 +517,12 @@ def create_model_builder(server):
     server.controller.set_bc_item_value = set_bc_item_value
     server.controller.toggle_assign_power_source_object = toggle_assign_power_source_object
     server.controller.toggle_assign_temperature_surface = toggle_assign_temperature_surface
-    server.controller.import_materials_file = import_materials_file
-    server.controller.refresh_materials = refresh_materials
+    server.controller.create_blank_material = create_blank_material
+    server.controller.load_all_default_materials = load_all_default_materials
+    server.controller.toggle_material_expanded = toggle_material_expanded
+    server.controller.start_material_rename = start_material_rename
+    server.controller.finish_material_rename = finish_material_rename
+    server.controller.set_material_property_value = set_material_property_value
 
     with v3.VCard(
         classes="fill-height",
@@ -554,6 +586,33 @@ def create_model_builder(server):
                             prepend_icon="mdi-thermometer",
                             value="bc_temperature",
                             click="active_node = 'bc_temperature'",
+                            density="compact",
+                        )
+
+                elif node["id"] == "materials":
+                    # Materials — expands to show Create Blank and Add from Default
+                    with v3.VListGroup(value="materials"):
+                        with html_widgets.Template(v_slot_activator="{ props }"):
+                            v3.VListItem(
+                                title="Materials",
+                                prepend_icon="mdi-atom",
+                                v_bind="props",
+                                click="active_node = 'materials'",
+                            )
+
+                        v3.VListItem(
+                            title="Create Blank Material",
+                            prepend_icon="mdi-plus",
+                            click=(server.controller.create_blank_material, "[]"),
+                            classes="text-primary",
+                            density="compact",
+                        )
+
+                        v3.VListItem(
+                            title="Add Material from Default",
+                            prepend_icon="mdi-download-outline",
+                            click=(server.controller.load_all_default_materials, "[]"),
+                            classes="text-primary",
                             density="compact",
                         )
 

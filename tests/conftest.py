@@ -155,6 +155,13 @@ def page(browser):
         s.set("bc_add_placeholder_message", "");
         s.set("geometry_imports", []);
         s.set("geometry_import_counter", 0);
+        s.set("materials_catalog", []);
+        s.set("materials_items", []);
+        s.set("materials_expanded_item", "");
+        s.set("materials_editing_id", "");
+        s.set("materials_editing_name", "");
+        s.set("materials_counter", 0);
+        s.set("materials_last_result", "");
         s.set("viewer_show_edges", true);
         s.set("viewer_semi_transparent", false);
         s.set("viewer_wireframe", true);

@@ -128,43 +128,14 @@ def create_settings_panel(server):
                                     __properties=[("v_bind_active", ":active")],
                                 )
 
-        # Materials — direct apply TXT import through integration adapter
+        # Materials — collapsible list of project materials
         with v3.VCardText(v_if="active_node === 'materials'"):
             v3.VCardTitle(
-                "Material Properties",
+                "Materials",
                 classes="text-subtitle-1 font-weight-bold pa-0 mb-2",
             )
-            with html_widgets.Div(classes="mb-2"):
-                v3.VTextField(
-                    v_model=("materials_import_file_path",),
-                    label="Material TXT file path",
-                    placeholder="/path/to/material.txt",
-                    variant="outlined",
-                    density="compact",
-                    hide_details=True,
-                    classes="materials-file-path",
-                )
-            with html_widgets.Div(
-                style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px;",
-            ):
-                v3.VBtn(
-                    "Import Materials TXT",
-                    prepend_icon="mdi-file-upload-outline",
-                    variant="tonal",
-                    color="primary",
-                    density="compact",
-                    classes="materials-import-btn",
-                    click=(server.controller.import_materials_file, "[materials_import_file_path]"),
-                )
-                v3.VBtn(
-                    "Refresh",
-                    prepend_icon="mdi-refresh",
-                    variant="text",
-                    density="compact",
-                    classes="materials-refresh-btn",
-                    click=(server.controller.refresh_materials, "[]"),
-                )
 
+            # Status message
             with v3.VAlert(
                 v_if="materials_last_result",
                 type="info",
@@ -174,58 +145,138 @@ def create_settings_panel(server):
             ):
                 html_widgets.Span("{{ materials_last_result }}")
 
-            with v3.VAlert(
-                v_if="materials_warnings && materials_warnings.length > 0",
-                type="warning",
-                variant="tonal",
-                density="compact",
-                classes="mb-2",
-            ):
-                html_widgets.Div(
-                    "Warnings ({{ materials_warnings.length }}):",
-                    classes="text-caption font-weight-bold mb-1",
-                )
-                with v3.VList(density="compact"):
-                    with html_widgets.Template(
-                        v_for="(warn, widx) in materials_warnings",
-                        __properties=[("v_for", "v-for")],
+            # Project materials list
+            with v3.VList(density="compact"):
+                with html_widgets.Template(
+                    v_for="(mat, matIdx) in materials_items",
+                    __properties=[("v_for", "v-for")],
+                ):
+                    # Editing mode — inline rename text field
+                    with html_widgets.Div(
+                        v_if="materials_editing_id === mat.name",
+                        style="display: flex; align-items: center; padding: 4px 8px;",
                     ):
-                        v3.VListItem(
-                            v_bind_title=(
-                                "'Line ' + warn.line + ': ' + warn.reason "
-                                "+ (warn.raw ? ' | ' + warn.raw : '')"
-                            ),
+                        v3.VTextField(
+                            v_model=("materials_editing_name",),
+                            variant="outlined",
                             density="compact",
-                            classes="materials-warning-row",
+                            hide_details=True,
+                            autofocus=True,
+                            style="flex: 1;",
+                            v_on_keyup_enter="$event.target.blur()",
+                            blur=(server.controller.finish_material_rename, "[materials_editing_name]"),
+                            classes="material-rename-input",
+                            __properties=[("v_on_keyup_enter", "v-on:keyup.enter")],
                         )
 
-            html_widgets.Div(
-                "Canonical Materials",
-                classes="text-caption font-weight-bold mb-1",
-            )
-            with html_widgets.Div(
-                style="border: 1px solid #e0e0e0; border-radius: 6px; overflow: hidden;",
-            ):
-                with v3.VTable(density="compact"):
-                    with html_widgets.Thead():
-                        with html_widgets.Tr():
-                            html_widgets.Th("Name")
-                            html_widgets.Th("kx")
-                            html_widgets.Th("ky")
-                            html_widgets.Th("kz")
-                    with html_widgets.Tbody():
+                    # Display mode — name row + chevron
+                    with html_widgets.Div(
+                        v_if="materials_editing_id !== mat.name",
+                        style="display: flex; align-items: center; gap: 6px; padding: 2px 0;",
+                        classes="material-item-row",
+                    ):
+                        with html_widgets.Div(style="flex: 1; min-width: 0;"):
+                            v3.VListItem(
+                                v_bind_title="mat.name",
+                                prepend_icon="mdi-atom",
+                                click=(server.controller.toggle_material_expanded, "[mat.name]"),
+                                dblclick=(server.controller.start_material_rename, "[mat.name]"),
+                                density="compact",
+                                v_bind_style=(
+                                    "materials_expanded_item === mat.name"
+                                    " ? { fontWeight: 700 } : { fontWeight: 400 }"
+                                ),
+                                __properties=[("v_bind_style", ":style")],
+                            )
+                        with v3.VBtn(
+                            icon=True,
+                            variant="text",
+                            color=("materials_expanded_item === mat.name ? 'primary' : 'grey'",),
+                            density="compact",
+                            click=(server.controller.toggle_material_expanded, "[mat.name]"),
+                            classes="material-expand-btn",
+                        ):
+                            v3.VIcon(
+                                ("materials_expanded_item === mat.name ? 'mdi-chevron-up' : 'mdi-chevron-down'",),
+                                size="small",
+                            )
+
+                    # Expanded body — structured property rows
+                    with html_widgets.Div(
+                        v_if="materials_expanded_item === mat.name && materials_editing_id !== mat.name",
+                        style=(
+                            "border: 1px solid #e0e0e0; border-radius: 6px;"
+                            " margin: 4px 8px 8px 8px; padding: 8px;"
+                        ),
+                        classes="material-expanded-body",
+                    ):
                         with html_widgets.Template(
-                            v_for="(mat, midx) in materials_items",
+                            v_for="(propVal, propName) in mat.properties",
                             __properties=[("v_for", "v-for")],
                         ):
-                            with html_widgets.Tr():
-                                html_widgets.Td("{{ mat.name }}")
-                                html_widgets.Td("{{ mat.kx }}")
-                                html_widgets.Td("{{ mat.ky }}")
-                                html_widgets.Td("{{ mat.kz }}")
-                        with html_widgets.Tr(v_if="!materials_items || materials_items.length === 0"):
-                            with html_widgets.Td(colspan="4", style="text-align: center; color: #777;"):
-                                html_widgets.Span("No materials loaded")
+                            # Tensor property (value is array) — one row per component
+                            with html_widgets.Template(
+                                v_if="Array.isArray(propVal.value)",
+                            ):
+                                with html_widgets.Template(
+                                    v_for="(compVal, compIdx) in propVal.value",
+                                    __properties=[("v_for", "v-for")],
+                                ):
+                                    with html_widgets.Div(
+                                        style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;",
+                                    ):
+                                        html_widgets.Span(
+                                            "{{ propName.replace(/_/g, ' ').replace(/^\\w/, c => c.toUpperCase()) }}"
+                                            " - {{ ['x','y','z'][compIdx] }} :",
+                                            style="font-size: 12px; min-width: 200px;",
+                                        )
+                                        v3.VTextField(
+                                            model_value=("compVal",),
+                                            type="number",
+                                            variant="outlined",
+                                            density="compact",
+                                            hide_details=True,
+                                            style="max-width: 100px;",
+                                            blur=(
+                                                server.controller.set_material_property_value,
+                                                "[mat.name, propName, compIdx, $event.target.value]",
+                                            ),
+                                            classes="material-prop-input",
+                                        )
+                                        html_widgets.Span(
+                                            "{{ propVal.units }}",
+                                            style="font-size: 12px; color: #555;",
+                                            v_if="propVal.units",
+                                        )
+                            # Scalar property — single row
+                            with html_widgets.Template(
+                                v_if="!Array.isArray(propVal.value)",
+                            ):
+                                with html_widgets.Div(
+                                    style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px;",
+                                ):
+                                    html_widgets.Span(
+                                        "{{ propName.replace(/_/g, ' ').replace(/^\\w/, c => c.toUpperCase()) }} :",
+                                        style="font-size: 12px; min-width: 200px;",
+                                    )
+                                    v3.VTextField(
+                                        model_value=("propVal.value",),
+                                        type="number",
+                                        variant="outlined",
+                                        density="compact",
+                                        hide_details=True,
+                                        style="max-width: 100px;",
+                                        blur=(
+                                            server.controller.set_material_property_value,
+                                            "[mat.name, propName, -1, $event.target.value]",
+                                        ),
+                                        classes="material-prop-input",
+                                    )
+                                    html_widgets.Span(
+                                        "{{ propVal.units }}",
+                                        style="font-size: 12px; color: #555;",
+                                        v_if="propVal.units",
+                                    )
 
         # Power Source category — list with inline rename + Add button
         with v3.VCardText(v_if="active_node === 'bc_power_source'"):

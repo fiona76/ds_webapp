@@ -3,6 +3,20 @@ from typing import Any, Optional
 
 
 @dataclass
+class CatalogProperty:
+    name: str
+    kind: str           # "scalar" | "tensor"
+    default_units: str
+    symmetry: Optional[str] = None  # "orthotropic" | "isotropic" | "anisotropic" | None
+
+
+@dataclass
+class CatalogResponse:
+    result: "OperationResult"
+    properties: list[CatalogProperty] = field(default_factory=list)
+
+
+@dataclass
 class OperationResult:
     ok: bool
     message: str = ""
@@ -37,30 +51,19 @@ class SyncResult:
 
 
 @dataclass
-class MaterialRecord:
-    name: str
-    kx: float
-    ky: float
-    kz: float
-
-
-@dataclass
-class MaterialWarning:
-    line: int
-    reason: str
-    raw: str
-
-
-@dataclass
-class MaterialsImportResponse:
+class DefaultMaterialsListResponse:
     result: OperationResult
-    created_count: int = 0
-    updated_count: int = 0
-    warnings: list[MaterialWarning] = field(default_factory=list)
-    materials: list[MaterialRecord] = field(default_factory=list)
+    names: list[str] = field(default_factory=list)
 
 
 @dataclass
-class MaterialsListResponse:
+class DefaultMaterialDetailResponse:
     result: OperationResult
-    materials: list[MaterialRecord] = field(default_factory=list)
+    name: str = ""
+    properties: dict = field(default_factory=dict)
+
+
+@dataclass
+class DefaultMaterialsBulkResponse:
+    result: OperationResult
+    materials: list[dict] = field(default_factory=list)  # each: {name, properties}

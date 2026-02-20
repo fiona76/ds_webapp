@@ -1,81 +1,17 @@
 from copy import deepcopy
-from dataclasses import asdict
 from typing import Any
 
 from integration.dto import (
     AddPowerSourceResponse,
     AddTemperatureResponse,
     BoundaryConfigResponse,
-    MaterialsImportResponse,
-    MaterialsListResponse,
-    MaterialRecord,
-    MaterialWarning,
+    CatalogResponse,
+    DefaultMaterialDetailResponse,
+    DefaultMaterialsBulkResponse,
+    DefaultMaterialsListResponse,
     OperationResult,
     SyncResult,
 )
-
-
-def _parse_material_text(text: str) -> tuple[list[MaterialRecord], list[MaterialWarning]]:
-    records_by_name: dict[str, MaterialRecord] = {}
-    warnings: list[MaterialWarning] = []
-
-    for line_no, raw in enumerate(text.splitlines(), start=1):
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-
-        parts = [part.strip() for part in raw.split(",")]
-        if len(parts) == 4 and [p.casefold() for p in parts] == ["name", "kx", "ky", "kz"]:
-            continue
-
-        if len(parts) != 4:
-            warnings.append(
-                MaterialWarning(
-                    line=line_no,
-                    reason="Expected 4 comma-separated values",
-                    raw=raw,
-                )
-            )
-            continue
-
-        name, kx_raw, ky_raw, kz_raw = parts
-        if not name:
-            warnings.append(
-                MaterialWarning(
-                    line=line_no,
-                    reason="Missing material name",
-                    raw=raw,
-                )
-            )
-            continue
-
-        try:
-            kx = float(kx_raw)
-            ky = float(ky_raw)
-            kz = float(kz_raw)
-        except ValueError:
-            warnings.append(
-                MaterialWarning(
-                    line=line_no,
-                    reason="Thermal conductivity values must be numeric",
-                    raw=raw,
-                )
-            )
-            continue
-
-        key = name.casefold()
-        if key in records_by_name:
-            warnings.append(
-                MaterialWarning(
-                    line=line_no,
-                    reason="Duplicate material name; last value kept",
-                    raw=raw,
-                )
-            )
-
-        records_by_name[key] = MaterialRecord(name=name, kx=kx, ky=ky, kz=kz)
-
-    return list(records_by_name.values()), warnings
 
 
 class LocalIntegrationAdapter:
@@ -330,120 +266,38 @@ class LocalIntegrationAdapter:
             version=int(getattr(self.state, "project_version", 0)),
         )
 
-    def import_materials_file(self, project_id: str, file_path: str) -> MaterialsImportResponse:
-        _ = project_id
-        if not file_path:
-            return MaterialsImportResponse(
-                result=OperationResult(
-                    ok=False,
-                    message="Material file path is required",
-                    error_code="VALIDATION_ERROR",
-                )
-            )
-
-        try:
-            with open(file_path, "rb") as f:
-                text = f.read().decode("utf-8")
-        except FileNotFoundError:
-            return MaterialsImportResponse(
-                result=OperationResult(
-                    ok=False,
-                    message=f"Material file not found: {file_path}",
-                    error_code="NOT_FOUND",
-                )
-            )
-        except UnicodeDecodeError:
-            return MaterialsImportResponse(
-                result=OperationResult(
-                    ok=False,
-                    message="Material file must be UTF-8 text",
-                    error_code="VALIDATION_ERROR",
-                )
-            )
-        except Exception as exc:
-            return MaterialsImportResponse(
-                result=OperationResult(
-                    ok=False,
-                    message=str(exc),
-                    error_code="UNKNOWN_ERROR",
-                )
-            )
-
-        parsed_records, warnings = _parse_material_text(text)
-        if not parsed_records:
-            return MaterialsImportResponse(
-                result=OperationResult(
-                    ok=False,
-                    message="No valid material rows found",
-                    error_code="VALIDATION_ERROR",
-                    details={"warning_count": len(warnings)},
-                ),
-                warnings=warnings,
-                materials=[
-                    MaterialRecord(
-                        name=item["name"],
-                        kx=float(item["kx"]),
-                        ky=float(item["ky"]),
-                        kz=float(item["kz"]),
-                    )
-                    for item in list(self.state.materials_library)
-                ],
-            )
-
-        existing = {
-            item["name"].casefold(): dict(item)
-            for item in list(self.state.materials_library)
-            if item.get("name")
-        }
-        created_count = 0
-        updated_count = 0
-
-        for rec in parsed_records:
-            key = rec.name.casefold()
-            if key in existing:
-                updated_count += 1
-            else:
-                created_count += 1
-            existing[key] = asdict(rec)
-
-        merged = sorted(existing.values(), key=lambda item: item["name"].casefold())
-        self.state.materials_library = merged
-        self._mark_mutation()
-
-        return MaterialsImportResponse(
+    def get_materials_catalog(self) -> CatalogResponse:
+        return CatalogResponse(
             result=OperationResult(
-                ok=True,
-                message=f"Imported {len(parsed_records)} material rows",
-                details={"warning_count": len(warnings)},
-            ),
-            created_count=created_count,
-            updated_count=updated_count,
-            warnings=warnings,
-            materials=[
-                MaterialRecord(
-                    name=item["name"],
-                    kx=float(item["kx"]),
-                    ky=float(item["ky"]),
-                    kz=float(item["kz"]),
-                )
-                for item in merged
-            ],
+                ok=False,
+                message="Materials catalog requires the redrock API server",
+                error_code="NOT_AVAILABLE",
+            )
         )
 
-    def get_materials(self, project_id: str) -> MaterialsListResponse:
-        _ = project_id
-        return MaterialsListResponse(
-            result=OperationResult(ok=True, message="Materials loaded"),
-            materials=[
-                MaterialRecord(
-                    name=item["name"],
-                    kx=float(item["kx"]),
-                    ky=float(item["ky"]),
-                    kz=float(item["kz"]),
-                )
-                for item in sorted(
-                    list(self.state.materials_library),
-                    key=lambda item: item["name"].casefold(),
-                )
-            ],
+    def list_default_materials(self) -> DefaultMaterialsListResponse:
+        return DefaultMaterialsListResponse(
+            result=OperationResult(
+                ok=False,
+                message="Load default materials requires the redrock API server",
+                error_code="NOT_AVAILABLE",
+            )
+        )
+
+    def get_default_material(self, name: str) -> DefaultMaterialDetailResponse:
+        return DefaultMaterialDetailResponse(
+            result=OperationResult(
+                ok=False,
+                message="Load default materials requires the redrock API server",
+                error_code="NOT_AVAILABLE",
+            )
+        )
+
+    def list_default_materials_full(self) -> DefaultMaterialsBulkResponse:
+        return DefaultMaterialsBulkResponse(
+            result=OperationResult(
+                ok=False,
+                message="Load default materials requires the redrock API server",
+                error_code="NOT_AVAILABLE",
+            )
         )
