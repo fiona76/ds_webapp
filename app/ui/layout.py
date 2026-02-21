@@ -178,6 +178,34 @@ def create_layout(server):
 
                     v3.VDivider(vertical=True, classes="mx-1")
 
+                    # View preset buttons
+                    with v3.VBtn(
+                        variant="text",
+                        size="small",
+                        click=(server.controller.set_view_xy, "[]"),
+                        classes="view-xy-btn",
+                        style="min-width: 32px;",
+                    ):
+                        html_widgets.Span("XY", style="font-size: 11px; font-weight: 500;")
+                    with v3.VBtn(
+                        variant="text",
+                        size="small",
+                        click=(server.controller.set_view_yz, "[]"),
+                        classes="view-yz-btn",
+                        style="min-width: 32px;",
+                    ):
+                        html_widgets.Span("YZ", style="font-size: 11px; font-weight: 500;")
+                    with v3.VBtn(
+                        variant="text",
+                        size="small",
+                        click=(server.controller.set_view_xz, "[]"),
+                        classes="view-xz-btn",
+                        style="min-width: 32px;",
+                    ):
+                        html_widgets.Span("XZ", style="font-size: 11px; font-weight: 500;")
+
+                    v3.VDivider(vertical=True, classes="mx-1")
+
                     # Viewer display mode toggles
                     with v3.VBtn(
                         icon=True,

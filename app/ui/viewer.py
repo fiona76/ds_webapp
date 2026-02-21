@@ -476,9 +476,48 @@ def create_viewer(server):
             renderer.ResetCamera()
             server.controller.view_reset_camera()
 
+        def _set_plane_view(position_dir, view_up):
+            """Set the camera to look along a principal axis."""
+            if not current_actors:
+                return
+            bounds = renderer.ComputeVisiblePropBounds()
+            # bounds = (xmin, xmax, ymin, ymax, zmin, zmax)
+            # If no visible geometry, xmin > xmax
+            if bounds[0] > bounds[1]:
+                return
+            cx = (bounds[0] + bounds[1]) / 2
+            cy = (bounds[2] + bounds[3]) / 2
+            cz = (bounds[4] + bounds[5]) / 2
+            dx = bounds[1] - bounds[0]
+            dy = bounds[3] - bounds[2]
+            dz = bounds[5] - bounds[4]
+            dist = max((dx * dx + dy * dy + dz * dz) ** 0.5 * 2, 1e-3)
+            camera = renderer.GetActiveCamera()
+            px, py, pz = position_dir
+            camera.SetFocalPoint(cx, cy, cz)
+            camera.SetPosition(cx + px * dist, cy + py * dist, cz + pz * dist)
+            camera.SetViewUp(*view_up)
+            renderer.ResetCamera()
+            server.controller.view_push_camera()
+
+        def set_view_xy():
+            """Look down the Z-axis (XY plane)."""
+            _set_plane_view((0, 0, 1), (0, 1, 0))
+
+        def set_view_yz():
+            """Look down the X-axis (YZ plane)."""
+            _set_plane_view((1, 0, 0), (0, 0, 1))
+
+        def set_view_xz():
+            """Look down the Y-axis (XZ plane)."""
+            _set_plane_view((0, 1, 0), (0, 0, 1))
+
         server.controller.show_geometry = show_geometry
         server.controller.highlight_object = _apply_all_styles
         server.controller.reset_view = reset_view
+        server.controller.set_view_xy = set_view_xy
+        server.controller.set_view_yz = set_view_yz
+        server.controller.set_view_xz = set_view_xz
 
         with v3.VCard(classes="fill-height", flat=True, rounded=0):
             with v3.VCardText(classes="pa-0 fill-height", style="position: relative;"):
@@ -491,6 +530,7 @@ def create_viewer(server):
                     _get_scene_object_id = view.get_scene_object_id
                 server.controller.view_update = view.update
                 server.controller.view_reset_camera = view.reset_camera
+                server.controller.view_push_camera = view.push_camera
                 # Reset view button (bottom-left)
                 with v3.VBtn(
                     icon=True,
