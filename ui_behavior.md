@@ -11,11 +11,39 @@
 - Once a new blank project is created, the standard layout and panel behavior below applies.
 
 ## Layout and Panels
-- Top menu has `File` (New, Open, Save, Save As) and `Edit` (Undo, Redo, Select All, Clear Selection).
-- Left side contains `Model Builder` and `Settings` (collapsible together).
+- Top menu has `File` (New, Open, Save, Save As) and `Edit` (Undo, Redo).
+- Left side contains `Model Builder` and `Settings` (collapsible together). Both panels can be resized by dragging the dividers on either side of Settings.
 - Center contains 3D viewport and toolbar.
 - Bottom contains `Log` (collapsible independently).
 - Settings is a context-sensitive panel — shows properties for whichever Model Builder item is selected.
+
+## Undo / Redo
+
+### Scope
+Undo and redo track **model-definition edits** only. Execute-phase operations (Modelization, Build Sub-Model, Solving) are excluded — they fire backend computation and have no meaningful UI inverse.
+
+Tracked operations (all undoable):
+| Area | Operations |
+|------|-----------|
+| Geometry | Import STEP file |
+| Materials | Create blank material, load default materials, rename material, edit property value |
+| Boundary Condition | Add / delete Power Source or Temperature, rename, set value, assign/unassign objects or surfaces |
+
+### Behavior
+- **Undo** restores the state to immediately before the last tracked action.
+- **Redo** re-applies an undone action.
+- History depth: **50 steps**. Older entries are dropped when the limit is exceeded.
+- Performing any new edit after an undo clears the redo stack (standard linear history).
+- Running Modelization, Build Sub-Model, or Solving does **not** clear undo history — users can still undo model edits made before a simulation run.
+
+### Triggering undo/redo
+| Method | Undo | Redo |
+|--------|------|------|
+| Keyboard | `Ctrl+Z` | `Ctrl+Y` or `Ctrl+Shift+Z` |
+| Edit menu | Edit → Undo | Edit → Redo |
+
+- Keyboard shortcuts are suppressed when focus is inside a text input (to preserve browser-native text-edit undo).
+- Edit menu items show the keyboard hint as a subtitle and are greyed out when no history is available.
 
 ## Model Builder
 - Top-level nodes:

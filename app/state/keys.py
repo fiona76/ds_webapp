@@ -12,9 +12,12 @@ ACTIVE_NODE = "active_node"  # currently selected tree node id
 SELECTED_OBJECT = "selected_object"  # name of highlighted object in viewport
 
 # Viewer display modes
-VIEWER_SHOW_EDGES = "viewer_show_edges"              # bool, default True
+VIEWER_SHOW_EDGES = "viewer_show_edges"              # bool, default False (always hidden)
 VIEWER_SEMI_TRANSPARENT = "viewer_semi_transparent"   # bool, default False
-VIEWER_WIREFRAME = "viewer_wireframe"                 # bool, default False
+VIEWER_WIREFRAME = "viewer_wireframe"                 # bool, default True (always on, no toolbar button)
+VIEWER_WIREFRAME_ONLY = "viewer_wireframe_only"       # bool, default False; opacity=0 so only wireframe lines show
+VIEWER_SHOW_RULERS = "viewer_show_rulers"             # bool, default False; toggles vtkCubeAxesActor
+VIEWER_GEOMETRY_UNIT = "viewer_geometry_unit"         # str, e.g. "mm"; drives ruler axis titles
 
 # Boundary Condition
 BC_POWER_SOURCES = "bc_power_sources"                  # list of {id, name}

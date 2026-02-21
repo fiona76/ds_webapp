@@ -65,7 +65,7 @@ def create_settings_panel(server):
                     v_for="(imp, impIdx) in geometry_imports",
                     __properties=[("v_for", "v-for")],
                 ):
-                    # Import row: [icon] [label (filename)] [chevron]
+                    # Import row: [icon] [label (filename)] [unit select] [chevron]
                     with html_widgets.Div(
                         style="display: flex; align-items: center; gap: 6px; padding: 2px 0;",
                         classes="geo-import-row",
@@ -81,6 +81,21 @@ def create_settings_panel(server):
                                     " ? { fontWeight: 700 } : { fontWeight: 400 }"
                                 ),
                                 __properties=[("v_bind_style", ":style")],
+                            )
+                        with html_widgets.Div(
+                            classes="geo-unit-select",
+                            style="width: 54px; min-width: 0; flex-shrink: 0;",
+                        ):
+                            v3.VSelect(
+                                items=("['mm', 'm', 'cm', 'um', 'nm']",),
+                                model_value=("imp.unit || 'mm'",),
+                                variant="outlined",
+                                density="compact",
+                                hide_details=True,
+                                update_modelValue=(
+                                    server.controller.set_geometry_import_unit,
+                                    "[imp.id, $event]",
+                                ),
                             )
                         with v3.VBtn(
                             icon=True,

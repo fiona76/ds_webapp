@@ -83,7 +83,20 @@ def create_layout(server):
             state.import_file_path = ""
 
     # Full-height flex column — no VMain padding
-    with html_widgets.Div(style="height: 100vh; display: flex; flex-direction: column; overflow: hidden;"):
+    # tabindex="-1" makes it programmatically focusable so @keydown fires for
+    # global shortcuts (Ctrl+Z / Ctrl+Y) when no text field has focus.
+    with html_widgets.Div(
+        style="height: 100vh; display: flex; flex-direction: column; overflow: hidden;",
+        tabindex="-1",
+        keydown=(
+            "const tag = $event.target.tagName.toLowerCase();"
+            " const editable = tag === 'input' || tag === 'textarea' || $event.target.isContentEditable;"
+            " if ($event.ctrlKey && !$event.shiftKey && $event.key === 'z' && !editable)"
+            "   { $event.preventDefault(); edit_menu_action = 'Undo'; }"
+            " else if ($event.ctrlKey && ($event.key === 'y' || ($event.shiftKey && $event.key === 'z')) && !editable)"
+            "   { $event.preventDefault(); edit_menu_action = 'Redo'; }"
+        ),
+    ):
 
         # White title bar above menu — narrow, text fills ~85% of height
         with html_widgets.Div(
@@ -168,19 +181,19 @@ def create_layout(server):
                     # Viewer display mode toggles
                     with v3.VBtn(
                         icon=True,
-                        click="viewer_show_edges = !viewer_show_edges",
+                        click="viewer_show_rulers = !viewer_show_rulers",
                         variant="text",
                         size="small",
-                        classes="toggle-edges",
+                        classes="toggle-rulers",
                     ):
                         v3.VIcon(
-                            "mdi-grid",
+                            "mdi-ruler",
                             size="small",
-                            color=("viewer_show_edges ? 'blue' : ''",),
+                            color=("viewer_show_rulers ? 'blue' : ''",),
                         )
                     with v3.VBtn(
                         icon=True,
-                        click="viewer_semi_transparent = !viewer_semi_transparent",
+                        click="viewer_semi_transparent = !viewer_semi_transparent; if (viewer_semi_transparent) viewer_wireframe_only = false",
                         variant="text",
                         size="small",
                         classes="toggle-semi-transparent",
@@ -192,7 +205,7 @@ def create_layout(server):
                         )
                     with v3.VBtn(
                         icon=True,
-                        click="viewer_wireframe = !viewer_wireframe",
+                        click="viewer_wireframe_only = !viewer_wireframe_only; if (viewer_wireframe_only) viewer_semi_transparent = false",
                         variant="text",
                         size="small",
                         classes="toggle-wireframe",
@@ -200,7 +213,7 @@ def create_layout(server):
                         v3.VIcon(
                             "mdi-cube-outline",
                             size="small",
-                            color=("viewer_wireframe ? 'blue' : ''",),
+                            color=("viewer_wireframe_only ? 'blue' : ''",),
                         )
                     with v3.VBtn(
                         icon=True,

@@ -162,10 +162,16 @@ def page(browser):
         s.set("materials_editing_name", "");
         s.set("materials_counter", 0);
         s.set("materials_last_result", "");
-        s.set("viewer_show_edges", true);
+        s.set("undo_available", false);
+        s.set("redo_available", false);
+        s.set("viewer_show_edges", false);
         s.set("viewer_semi_transparent", false);
         s.set("viewer_wireframe", true);
+        s.set("viewer_wireframe_only", false);
         s.set("viewer_scene_light", true);
+        s.set("viewer_show_rulers", false);
+        s.set("viewer_geometry_unit", "mm");
+        s.set("geo_unit_options", ["mm", "m", "cm", "um", "nm"]);
     }""")
     pg.wait_for_timeout(500)
 

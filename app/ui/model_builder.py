@@ -1,7 +1,11 @@
 from trame.widgets import vuetify3 as v3, html as html_widgets
 
 from app.engine.geometry import import_step_file
+from app.history import UndoHistory
 from integration.factory import create_integration_adapter
+
+# Module-level singleton — history survives across trame state resets.
+_history = UndoHistory()
 
 # Top-level tree nodes (static)
 MODEL_BUILDER_NODES = [
@@ -23,6 +27,8 @@ def create_model_builder(server):
     # List of imported geometry files: [{id, file_name, file_path, objects (names only)}]
     state.geometry_imports = []
     state.geometry_import_counter = 0
+    state.viewer_geometry_unit = "mm"
+    state.geo_unit_options = ["mm", "m", "cm", "um", "nm"]
     # Controls the file input dialog trigger
     state.trigger_file_input = 0
     # Which import row is currently expanded in Settings (empty = none)
@@ -49,6 +55,8 @@ def create_model_builder(server):
     state.materials_editing_name = ""
     state.materials_counter = 0
     state.materials_last_result = ""
+    state.undo_available = False
+    state.redo_available = False
 
     # Server-side storage for mesh data (not in trame state — too large)
     _geometry_meshes = {}  # import_id -> list of object dicts with vertices/triangles
@@ -64,6 +72,10 @@ def create_model_builder(server):
 
     def _log(msg):
         state.log_messages = state.log_messages + [msg]
+
+    def _push():
+        """Snapshot state onto the undo stack before a guaranteed mutation."""
+        _history.push(state)
 
     @state.change("active_node")
     def on_node_change(active_node, **_):
@@ -108,6 +120,7 @@ def create_model_builder(server):
         """Called when a STEP file is selected via the server-side file input."""
         try:
             result = import_step_file(file_path)
+            _push()  # capture before state changes; parse already succeeded
             state.geometry_import_counter = state.geometry_import_counter + 1
             import_id = f"import_{state.geometry_import_counter}"
 
@@ -122,8 +135,10 @@ def create_model_builder(server):
                 "file_name": result["file_name"],
                 "file_path": result["file_path"],
                 "objects": object_names,
+                "unit": result["unit"],
             }
             state.geometry_imports = state.geometry_imports + [import_entry]
+            state.viewer_geometry_unit = result["unit"]
             # Auto-expand the new import and navigate to geometry
             state.geometry_expanded_import_id = import_id
             state.active_node = "geometry"
@@ -161,15 +176,19 @@ def create_model_builder(server):
             _batch_updating = False
 
     def add_power_source():
+        snap = _history.capture(state)
         response = _adapter.add_power_source(_PROJECT_ID)
         if response.result.ok:
+            _history.commit(snap, state)
             _log(f"[BC] Added {response.item['name']}")
         else:
             _log(f"[BC] Error adding power source: {response.result.message}")
 
     def add_temperature():
+        snap = _history.capture(state)
         response = _adapter.add_temperature(_PROJECT_ID)
         if response.result.ok:
+            _history.commit(snap, state)
             _log(f"[BC] Added {response.item['name']}")
         else:
             _log(f"[BC] Error adding temperature: {response.result.message}")
@@ -186,6 +205,7 @@ def create_model_builder(server):
 
     def create_blank_material():
         _ensure_catalog_loaded()
+        _push()
         state.materials_counter = (state.materials_counter or 0) + 1
         name = f"Material {state.materials_counter}"
         # Pre-populate all catalog properties as empty constant slots
@@ -209,6 +229,7 @@ def create_model_builder(server):
             state.materials_last_result = response.result.message
             _log(f"[Materials] {response.result.message}")
             return
+        _push()
         existing_names = {m["name"] for m in (state.materials_items or [])}
         added, skipped = [], []
         for mat in response.materials:
@@ -243,6 +264,7 @@ def create_model_builder(server):
         if new_name in existing_names:
             state.materials_last_result = f"A material named '{new_name}' already exists"
             return
+        _push()
         state.materials_items = [
             {**m, "name": new_name} if m["name"] == old_name else m
             for m in (state.materials_items or [])
@@ -257,6 +279,7 @@ def create_model_builder(server):
             value = float(raw_value) if raw_value not in (None, "", "null") else None
         except (ValueError, TypeError):
             return
+        _push()
         updated_items = []
         for mat in (state.materials_items or []):
             if mat["name"] != mat_name:
@@ -377,8 +400,10 @@ def create_model_builder(server):
         if not selected_values:
             return
 
+        snap = _history.capture(state)
         result = _adapter.remove_selected_assignment(_PROJECT_ID, item_id, selected_values)
         if result.ok:
+            _history.commit(snap, state)
             state.bc_selected_assignment_item_id = ""
             state.bc_selected_assignment_values = []
             state.bc_selection_anchor_index = -1
@@ -400,19 +425,25 @@ def create_model_builder(server):
 
     def set_bc_item_value(item_id, field_name, value):
         if item_id.startswith("ps_") and field_name == "power":
+            snap = _history.capture(state)
             result = _adapter.set_power_source_value(_PROJECT_ID, item_id, value)
         elif item_id.startswith("temp_") and field_name == "temperature":
+            snap = _history.capture(state)
             result = _adapter.set_temperature_value(_PROJECT_ID, item_id, value)
         else:
             return
-        if not result.ok:
+        if result.ok:
+            _history.commit(snap, state)
+        else:
             _log(f"[BC] Error setting value: {result.message}")
 
     def toggle_assign_power_source_object(item_id, object_name):
         if not item_id or not object_name:
             return
+        snap = _history.capture(state)
         result = _adapter.toggle_assign_power_source_object(_PROJECT_ID, item_id, object_name)
         if result.ok:
+            _history.commit(snap, state)
             if result.message == "Unassigned":
                 if state.bc_selected_assignment_item_id == item_id:
                     state.bc_selected_assignment_values = [
@@ -432,8 +463,10 @@ def create_model_builder(server):
     def toggle_assign_temperature_surface(item_id, surface_name):
         if not item_id or not surface_name:
             return
+        snap = _history.capture(state)
         result = _adapter.toggle_assign_temperature_surface(_PROJECT_ID, item_id, surface_name)
         if result.ok:
+            _history.commit(snap, state)
             if result.message == "Unassigned":
                 if state.bc_selected_assignment_item_id == item_id:
                     state.bc_selected_assignment_values = [
@@ -453,17 +486,21 @@ def create_model_builder(server):
     def rename_bc_item(item_id, new_name):
         if not new_name or not new_name.strip():
             return
+        snap = _history.capture(state)
         if item_id.startswith("ps_"):
             result = _adapter.rename_power_source(_PROJECT_ID, item_id, new_name)
         elif item_id.startswith("temp_"):
             result = _adapter.rename_temperature(_PROJECT_ID, item_id, new_name)
         else:
             return
-        if not result.ok:
+        if result.ok:
+            _history.commit(snap, state)
+        else:
             _log(f"[BC] Rename error: {result.message}")
 
     def delete_bc_item(item_id):
         """Delete a boundary-condition item by ID."""
+        snap = _history.capture(state)
         if item_id.startswith("ps_"):
             result = _adapter.delete_power_source(_PROJECT_ID, item_id)
         elif item_id.startswith("temp_"):
@@ -472,6 +509,7 @@ def create_model_builder(server):
             return
 
         if result.ok:
+            _history.commit(snap, state)
             _log(f"[BC] Deleted {item_id}")
             if item_id.startswith("ps_") and state.bc_expanded_power_source_id == item_id:
                 state.bc_expanded_power_source_id = ""
@@ -503,6 +541,16 @@ def create_model_builder(server):
             rename_bc_item(state.bc_editing_id, actual_name)
         state.bc_editing_id = ""
 
+    def set_geometry_import_unit(import_id, unit):
+        """Update the display unit for a geometry import."""
+        state.geometry_imports = [
+            {**imp, "unit": unit} if imp["id"] == import_id else imp
+            for imp in (state.geometry_imports or [])
+        ]
+        if state.geometry_expanded_import_id == import_id:
+            state.viewer_geometry_unit = unit
+
+    server.controller.set_geometry_import_unit = set_geometry_import_unit
     server.controller.toggle_geometry_import_expanded = toggle_geometry_import_expanded
     server.controller.add_power_source = add_power_source
     server.controller.add_temperature = add_temperature
@@ -523,6 +571,17 @@ def create_model_builder(server):
     server.controller.start_material_rename = start_material_rename
     server.controller.finish_material_rename = finish_material_rename
     server.controller.set_material_property_value = set_material_property_value
+
+    def undo():
+        if _history.undo(state):
+            _log("[History] Undo")
+
+    def redo():
+        if _history.redo(state):
+            _log("[History] Redo")
+
+    server.controller.undo = undo
+    server.controller.redo = redo
 
     with v3.VCard(
         classes="fill-height",

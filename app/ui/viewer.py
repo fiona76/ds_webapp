@@ -1,3 +1,5 @@
+import asyncio
+
 from trame.widgets import vuetify3 as v3, html as html_widgets
 
 try:
@@ -10,6 +12,7 @@ try:
     from vtkmodules.vtkCommonDataModel import vtkPolyData, vtkCellArray, vtkTriangle, vtkLine
     from vtkmodules.vtkFiltersCore import vtkPolyDataNormals
     from vtkmodules.vtkInteractionStyle import vtkInteractorStyleTrackballCamera
+    from vtkmodules.vtkRenderingAnnotation import vtkCubeAxesActor
     # Ensure OpenGL2 backend is loaded
     import vtkmodules.vtkRenderingOpenGL2  # noqa: F401
     VTK_AVAILABLE = True
@@ -114,13 +117,36 @@ def create_viewer(server):
         picker.SetTolerance(0.0005)
 
         # Initialize viewer display mode defaults
-        state.viewer_show_edges = True
+        state.viewer_show_edges = False
         state.viewer_semi_transparent = False
         state.viewer_wireframe = True
+        state.viewer_wireframe_only = False
         state.viewer_scene_light = True
+        state.viewer_show_rulers = False
+
+        # Cube axes actor (rulers) — hidden until toggled on
+        cube_axes = vtkCubeAxesActor()
+        cube_axes.SetCamera(renderer.GetActiveCamera())
+        cube_axes.SetFlyModeToClosestTriad()
+        cube_axes.SetVisibility(False)
+        cube_axes.SetXLabelFormat("%-#6.3g")
+        cube_axes.SetYLabelFormat("%-#6.3g")
+        cube_axes.SetZLabelFormat("%-#6.3g")
+        cube_axes.SetXTitle("X")
+        cube_axes.SetYTitle("Y")
+        cube_axes.SetZTitle("Z")
+        for i in range(3):
+            cube_axes.GetTitleTextProperty(i).SetColor(0.2, 0.2, 0.2)
+            cube_axes.GetTitleTextProperty(i).SetFontSize(12)
+            cube_axes.GetLabelTextProperty(i).SetColor(0.2, 0.2, 0.2)
+            cube_axes.GetLabelTextProperty(i).SetFontSize(10)
+            cube_axes.GetXAxesLinesProperty().SetColor(0.3, 0.3, 0.3)
+            cube_axes.GetYAxesLinesProperty().SetColor(0.3, 0.3, 0.3)
+            cube_axes.GetZAxesLinesProperty().SetColor(0.3, 0.3, 0.3)
+        renderer.AddActor(cube_axes)
 
         def _style_actor(actor, highlighted=False, show_edges=True,
-                         semi_transparent=False, scene_light=True):
+                         semi_transparent=False, scene_light=True, wireframe_only=False):
             prop = actor.GetProperty()
             if highlighted:
                 prop.SetColor(*COLOR_HIGHLIGHT)
@@ -132,7 +158,14 @@ def create_viewer(server):
                 prop.SetLineWidth(0.5)
             prop.SetRepresentationToSurface()
             prop.SetEdgeVisibility(show_edges)
-            prop.SetOpacity(0.4 if semi_transparent else 1.0)
+            if wireframe_only:
+                # 0.001 is visually invisible but keeps the actor pickable in vtk.js.
+                # opacity=0.0 causes vtk.js to skip the actor entirely during picking,
+                # breaking all three pick paths in on_click.
+                opacity = 0.4 if highlighted else 0.001
+            else:
+                opacity = 0.4 if semi_transparent else 1.0
+            prop.SetOpacity(opacity)
             if scene_light:
                 prop.SetAmbient(0.2)
                 prop.SetDiffuse(0.8)
@@ -261,11 +294,21 @@ def create_viewer(server):
                 dz = max_z - min_z
                 diag = (dx * dx + dy * dy + dz * dz) ** 0.5
                 pick_distance_threshold = max(diag * 0.30, 1e-6)
+                cube_axes.SetBounds(min_x, max_x, min_y, max_y, min_z, max_z)
             else:
                 pick_distance_threshold = 0.0
-            # Apply styles and push scene in a single view_update() call
-            # (avoids multiple rapid serializations that cause sync issues)
+            # Apply styles and push scene to client first.
             _apply_all_styles()
+            # Then schedule a camera reset with a short delay so the client
+            # finishes processing the scene update before receiving resetCamera.
+            # Calling view_reset_camera() synchronously races against the scene
+            # push and resets to empty bounds (wrong camera). The delay ensures
+            # the client scene is ready when resetCamera arrives.
+            async def _deferred_reset():
+                await asyncio.sleep(0.3)
+                if hasattr(server.controller, "view_reset_camera"):
+                    server.controller.view_reset_camera()
+            asyncio.ensure_future(_deferred_reset())
 
         def _apply_all_styles(*args):
             """Re-style every actor based on current selection + display mode state."""
@@ -274,6 +317,7 @@ def create_viewer(server):
             show_edges = state.viewer_show_edges
             semi_trans = state.viewer_semi_transparent
             wireframe = state.viewer_wireframe
+            wireframe_only = state.viewer_wireframe_only
             scene_light = state.viewer_scene_light
             surface_mode = (
                 state.bc_active_assignment_type == "temperature"
@@ -296,15 +340,7 @@ def create_viewer(server):
                         highlighted_surfaces = set(item.get("assigned_surfaces", []))
                         break
 
-            selected_for_opacity = None if (surface_mode or power_mode) else selected
-
             for obj_name, actor_list in current_actors.items():
-                if selected_for_opacity is None:
-                    obj_semi = semi_trans
-                elif obj_name == selected_for_opacity:
-                    obj_semi = False
-                else:
-                    obj_semi = semi_trans
                 for actor in actor_list:
                     if surface_mode:
                         is_highlighted = actor_obj_to_surface.get(actor) in highlighted_surfaces
@@ -316,8 +352,9 @@ def create_viewer(server):
                         actor,
                         highlighted=is_highlighted,
                         show_edges=show_edges,
-                        semi_transparent=obj_semi,
+                        semi_transparent=semi_trans,
                         scene_light=scene_light,
+                        wireframe_only=wireframe_only,
                     )
 
             # Toggle feature edge actors
@@ -333,10 +370,19 @@ def create_viewer(server):
 
             server.controller.view_update()
 
-        @state.change("viewer_show_edges", "viewer_semi_transparent", "viewer_wireframe", "viewer_scene_light")
+        @state.change("viewer_show_edges", "viewer_semi_transparent", "viewer_wireframe", "viewer_wireframe_only", "viewer_scene_light")
         def _on_viewer_mode_change(**_):
             if current_actors:
                 _apply_all_styles()
+
+        @state.change("viewer_show_rulers", "viewer_geometry_unit")
+        def _on_ruler_change(viewer_show_rulers, viewer_geometry_unit, **_):
+            unit = viewer_geometry_unit or "mm"
+            cube_axes.SetXTitle(f"X ({unit})")
+            cube_axes.SetYTitle(f"Y ({unit})")
+            cube_axes.SetZTitle(f"Z ({unit})")
+            cube_axes.SetVisibility(bool(viewer_show_rulers))
+            server.controller.view_update()
 
         def on_click(event):
             """Handle click-to-pick on the 3D viewport."""

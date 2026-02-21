@@ -15,9 +15,15 @@ def create_menu_bar(server):
 
     @state.change("edit_menu_action")
     def on_edit_action(edit_menu_action, **_):
-        if edit_menu_action:
+        if not edit_menu_action:
+            return
+        if edit_menu_action == "Undo":
+            ctrl.undo()
+        elif edit_menu_action == "Redo":
+            ctrl.redo()
+        else:
             _log(f"[Edit] {edit_menu_action}")
-            state.edit_menu_action = None
+        state.edit_menu_action = None
 
     # Blue menu bar with File/Edit on the left
     with v3.VToolbar(density="compact", color="primary", flat=True):
@@ -52,23 +58,17 @@ def create_menu_bar(server):
                 with v3.VList(density="compact"):
                     v3.VListItem(
                         title="Undo",
+                        subtitle="Ctrl+Z",
                         prepend_icon="mdi-undo",
                         click="edit_menu_action = 'Undo'",
+                        disabled=("!undo_available",),
                     )
                     v3.VListItem(
                         title="Redo",
+                        subtitle="Ctrl+Y",
                         prepend_icon="mdi-redo",
                         click="edit_menu_action = 'Redo'",
-                    )
-                    v3.VListItem(
-                        title="Select All",
-                        prepend_icon="mdi-select-all",
-                        click="edit_menu_action = 'Select All'",
-                    )
-                    v3.VListItem(
-                        title="Clear Selection",
-                        prepend_icon="mdi-select-remove",
-                        click="edit_menu_action = 'Clear Selection'",
+                        disabled=("!redo_available",),
                     )
 
         v3.VSpacer()

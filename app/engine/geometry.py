@@ -1,6 +1,7 @@
 """Geometry engine — STEP file import, object extraction, and tessellation."""
 
 import os
+import re
 
 from OCP.STEPCAFControl import STEPCAFControl_Reader
 from OCP.TDocStd import TDocStd_Document
@@ -16,6 +17,48 @@ from OCP.TopAbs import TopAbs_FACE, TopAbs_EDGE
 from OCP.TopoDS import TopoDS
 from OCP.BRepAdaptor import BRepAdaptor_Curve
 from OCP.GCPnts import GCPnts_TangentialDeflection
+
+
+def _read_step_unit(file_path):
+    """Scan a STEP file for its length unit declaration.
+
+    STEP files are ASCII. The length unit is encoded in a compound entity
+    containing LENGTH_UNIT and SI_UNIT (or CONVERSION_BASED_UNIT for imperial).
+
+    Examples in STEP DATA section:
+      (LENGTH_UNIT()NAMED_UNIT(*)SI_UNIT(.MILLI.,.METRE.))  → mm
+      (LENGTH_UNIT()NAMED_UNIT(*)SI_UNIT($,.METRE.))        → m
+      (CONVERSION_BASED_UNIT('INCH',#n)LENGTH_UNIT()...)    → in
+
+    Returns one of: "mm", "m", "cm", "in", "ft".
+    Defaults to "mm" if the unit cannot be determined.
+    """
+    try:
+        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+            content = f.read(100_000)  # unit declarations appear near the top
+
+        # SI metre-based: find LENGTH_UNIT and SI_UNIT(.PREFIX.,.METRE.) on same entity
+        si_match = re.search(
+            r"LENGTH_UNIT[^;]*SI_UNIT\s*\(\s*([^,)]*)\s*,\s*\.METRE\.\s*\)",
+            content, re.IGNORECASE,
+        )
+        if si_match:
+            prefix = si_match.group(1).strip().upper()
+            if ".MILLI." in prefix:
+                return "mm"
+            if ".CENTI." in prefix:
+                return "cm"
+            if ".MICRO." in prefix:
+                return "um"
+            return "m"  # $ or empty means no prefix = metres
+
+        if re.search(r"CONVERSION_BASED_UNIT\s*\(\s*'INCH'", content, re.IGNORECASE):
+            return "in"
+        if re.search(r"CONVERSION_BASED_UNIT\s*\(\s*'FOOT'", content, re.IGNORECASE):
+            return "ft"
+    except Exception:
+        pass
+    return "mm"  # safe default for mechanical CAD
 
 
 def _get_label_name(label):
@@ -238,9 +281,11 @@ def import_step_file(file_path):
     if not os.path.isfile(abs_path):
         raise FileNotFoundError(f"STEP file not found: {abs_path}")
 
+    unit = _read_step_unit(abs_path)
     objects = parse_step_file(abs_path)
     return {
         "file_path": abs_path,
         "file_name": os.path.basename(abs_path),
         "objects": objects,
+        "unit": unit,
     }
