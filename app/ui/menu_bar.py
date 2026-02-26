@@ -9,9 +9,20 @@ def create_menu_bar(server):
 
     @state.change("file_menu_action")
     def on_file_action(file_menu_action, **_):
-        if file_menu_action:
-            _log(f"[File] {file_menu_action}")
-            state.file_menu_action = None
+        if not file_menu_action:
+            return
+        if file_menu_action == "Save":
+            fname = getattr(state, "project_filename", None) or None
+            if hasattr(ctrl, "save_project"):
+                ctrl.save_project(filename_override=fname)
+        elif file_menu_action == "Save As":
+            if hasattr(ctrl, "save_project"):
+                ctrl.save_project(filename_override=None)
+        elif file_menu_action == "Open":
+            pass  # file picker is opened directly from the click handler (client-side only)
+        elif file_menu_action == "New":
+            _log("[File] New — not yet implemented")
+        state.file_menu_action = None
 
     @state.change("edit_menu_action")
     def on_edit_action(edit_menu_action, **_):
@@ -39,7 +50,7 @@ def create_menu_bar(server):
                     v3.VListItem(
                         title="Open",
                         prepend_icon="mdi-folder-open",
-                        click="file_menu_action = 'Open'",
+                        click="file_menu_action = 'Open'; window._ds_open_file && window._ds_open_file()",
                     )
                     v3.VListItem(
                         title="Save",

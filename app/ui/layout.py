@@ -1,4 +1,5 @@
 import os
+import tempfile
 
 from trame.widgets import vuetify3 as v3, html as html_widgets
 
@@ -72,6 +73,13 @@ def create_layout(server):
                 state.browse_current_dir = parent
 
     state.do_import_trigger = 0
+
+    # Project save / load state
+    state.project_dirty = False
+    state.project_filename = ""
+    state.project_zip_payload = None
+    state.project_upload_payload = None
+    state.open_project_trigger = 0
 
     @state.change("do_import_trigger")
     def _on_do_import(do_import_trigger, **_):
@@ -369,3 +377,65 @@ def create_layout(server):
             ),
             mouseup="dragging_handle = null",
         )
+
+    # Register client-side project I/O logic via enable_module so it is
+    # injected as a real <script src="..."> tag in the HTML page — this is
+    # the correct trame mechanism. (Vue 3 sanitises <script> elements that
+    # are rendered through its virtual DOM, so html_widgets.Script does not
+    # execute; @vue:mounted on div elements also does not fire reliably.)
+    _js_src = """\
+(function () {
+    function init() {
+        if (!window.trame || !window.trame.state) { setTimeout(init, 200); return; }
+        if (window._ds_initialized) return;
+        window._ds_initialized = true;
+        var state = window.trame.state;
+
+        // Warn before leaving when unsaved changes exist
+        window.addEventListener('beforeunload', function (e) {
+            if (state.get('project_dirty')) { e.preventDefault(); e.returnValue = ''; }
+        });
+
+        // Hidden file input for File -> Open
+        var inp = document.createElement('input');
+        inp.type = 'file'; inp.accept = '.zip'; inp.style.display = 'none';
+        document.body.appendChild(inp);
+        inp.addEventListener('change', function () {
+            var f = inp.files[0]; if (!f) return;
+            var r = new FileReader();
+            r.onload = function (ev) {
+                state.set('project_upload_payload', {
+                    data: ev.target.result.split(',')[1],
+                    filename: f.name,
+                });
+            };
+            r.readAsDataURL(f); inp.value = '';
+        });
+        window._ds_open_file = function () { inp.click(); };
+
+        // Poll for ZIP download payload set by server (300 ms)
+        setInterval(function () {
+            var p = state.get('project_zip_payload');
+            if (p && p.data) {
+                var bytes = Uint8Array.from(atob(p.data), function (c) { return c.charCodeAt(0); });
+                var blob = new Blob([bytes], { type: 'application/zip' });
+                var url = URL.createObjectURL(blob);
+                var a = document.createElement('a');
+                a.href = url; a.download = p.filename || 'project.zip';
+                document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+                state.set('project_zip_payload', null);
+            }
+        }, 300);
+    }
+    init();
+})();
+"""
+    _tmp_dir = tempfile.mkdtemp(prefix="ds_webapp_")
+    _js_file = os.path.join(_tmp_dir, "project_io.js")
+    with open(_js_file, "w") as _fh:
+        _fh.write(_js_src)
+    server.enable_module({
+        "serve": {"_ds_scripts": _tmp_dir},
+        "scripts": ["_ds_scripts/project_io.js"],
+    })

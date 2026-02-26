@@ -320,7 +320,7 @@ def create_viewer(server):
             wireframe_only = state.viewer_wireframe_only
             scene_light = state.viewer_scene_light
             surface_mode = (
-                state.bc_active_assignment_type == "temperature"
+                state.bc_active_assignment_type in ("temperature", "stress")
                 and bool(state.bc_active_assignment_id)
             )
             power_mode = (
@@ -335,10 +335,16 @@ def create_viewer(server):
                         highlighted_objects = set(item.get("assigned_objects", []))
                         break
             elif surface_mode:
-                for item in state.bc_temperatures:
-                    if item.get("id") == state.bc_active_assignment_id:
-                        highlighted_surfaces = set(item.get("assigned_surfaces", []))
-                        break
+                if state.bc_active_assignment_type == "temperature":
+                    for item in state.bc_temperatures:
+                        if item.get("id") == state.bc_active_assignment_id:
+                            highlighted_surfaces = set(item.get("assigned_surfaces", []))
+                            break
+                elif state.bc_active_assignment_type == "stress":
+                    for item in state.bc_stresses:
+                        if item.get("id") == state.bc_active_assignment_id:
+                            highlighted_surfaces = set(item.get("assigned_surfaces", []))
+                            break
 
             for obj_name, actor_list in current_actors.items():
                 for actor in actor_list:
@@ -465,6 +471,11 @@ def create_viewer(server):
             elif state.bc_active_assignment_type == "temperature" and state.bc_active_assignment_id and surface_name:
                 if hasattr(server.controller, "toggle_assign_temperature_surface"):
                     server.controller.toggle_assign_temperature_surface(state.bc_active_assignment_id, surface_name)
+                state.selected_object = name
+                state.selected_surface = surface_name
+            elif state.bc_active_assignment_type == "stress" and state.bc_active_assignment_id and surface_name:
+                if hasattr(server.controller, "toggle_assign_stress_surface"):
+                    server.controller.toggle_assign_stress_surface(state.bc_active_assignment_id, surface_name)
                 state.selected_object = name
                 state.selected_surface = surface_name
             else:

@@ -7,8 +7,10 @@ def _new_state():
     return SimpleNamespace(
         bc_power_sources=[],
         bc_temperatures=[],
+        bc_stresses=[],
         bc_power_source_counter=0,
         bc_temperature_counter=0,
+        bc_stress_counter=0,
     )
 
 
@@ -26,20 +28,95 @@ def test_add_power_source_marks_unsynced_and_version():
     assert state.project_version == 1
 
 
-def test_power_source_assignment_exclusive():
+def test_power_source_assignment_steal():
+    """Assigning an object already owned by another PS steals it silently."""
     state = _new_state()
     adapter = LocalIntegrationAdapter(state)
     adapter.add_power_source("project_1")
     adapter.add_power_source("project_1")
 
-    ok = adapter.toggle_assign_power_source_object("project_1", "ps_1", "CHIP")
-    conflict = adapter.toggle_assign_power_source_object("project_1", "ps_2", "CHIP")
+    ok1 = adapter.toggle_assign_power_source_object("project_1", "ps_1", "CHIP")
+    ok2 = adapter.toggle_assign_power_source_object("project_1", "ps_2", "CHIP")
 
-    assert ok.ok is True
-    assert conflict.ok is False
-    assert conflict.error_code == "CONFLICT"
+    assert ok1.ok is True
+    assert ok2.ok is True
+    assert ok2.message == "Assigned"
+    # PS2 now owns CHIP
+    assert "CHIP" in state.bc_power_sources[1]["assigned_objects"]
+    # PS1 no longer owns CHIP — it appears in overridden_objects
+    assert "CHIP" not in state.bc_power_sources[0]["assigned_objects"]
+    assert "CHIP" in state.bc_power_sources[0]["overridden_objects"]
+
+
+def test_reclaim_bc_assignment():
+    """Reclaiming an overridden object restores it to the original PS."""
+    state = _new_state()
+    adapter = LocalIntegrationAdapter(state)
+    adapter.add_power_source("project_1")
+    adapter.add_power_source("project_1")
+    adapter.toggle_assign_power_source_object("project_1", "ps_1", "CHIP")
+    adapter.toggle_assign_power_source_object("project_1", "ps_2", "CHIP")  # steals CHIP
+
+    result = adapter.reclaim_bc_assignment("project_1", "ps_1", "CHIP")
+
+    assert result.ok is True
+    assert result.message == "Reclaimed"
+    # PS1 owns CHIP again
     assert "CHIP" in state.bc_power_sources[0]["assigned_objects"]
+    assert "CHIP" not in state.bc_power_sources[0]["overridden_objects"]
+    # PS2 no longer owns CHIP
     assert "CHIP" not in state.bc_power_sources[1]["assigned_objects"]
+
+
+def test_set_bc_assignment_mode_all():
+    """set_bc_assignment_mode 'all' bulk-assigns all_values and steals from other BCs."""
+    state = _new_state()
+    adapter = LocalIntegrationAdapter(state)
+    adapter.add_power_source("project_1")
+    adapter.add_power_source("project_1")
+    # PS2 owns CHIP initially
+    adapter.toggle_assign_power_source_object("project_1", "ps_2", "CHIP")
+
+    result = adapter.set_bc_assignment_mode("project_1", "ps_1", "all", ["CHIP", "PCB"])
+
+    assert result.ok is True
+    # PS1 now owns CHIP and PCB
+    assert state.bc_power_sources[0]["assigned_objects"] == ["CHIP", "PCB"]
+    assert state.bc_power_sources[0]["selection_mode"] == "all"
+    # CHIP was stolen from PS2 → appears in overridden_objects
+    assert "CHIP" not in state.bc_power_sources[1]["assigned_objects"]
+    assert "CHIP" in state.bc_power_sources[1]["overridden_objects"]
+
+
+def test_unassign_reverts_mode_to_manual():
+    """Removing an item from an 'all' PS reverts selection_mode to 'manual'."""
+    state = _new_state()
+    adapter = LocalIntegrationAdapter(state)
+    adapter.add_power_source("project_1")
+    adapter.set_bc_assignment_mode("project_1", "ps_1", "all", ["CHIP", "PCB"])
+    assert state.bc_power_sources[0]["selection_mode"] == "all"
+
+    result = adapter.toggle_assign_power_source_object("project_1", "ps_1", "CHIP")
+
+    assert result.ok is True
+    assert result.message == "Unassigned"
+    assert state.bc_power_sources[0]["selection_mode"] == "manual"
+    assert "PCB" in state.bc_power_sources[0]["assigned_objects"]
+    assert "CHIP" not in state.bc_power_sources[0]["assigned_objects"]
+
+
+def test_remove_selected_reverts_mode_to_manual():
+    """Using remove_selected_assignment on an 'all' PS reverts selection_mode."""
+    state = _new_state()
+    adapter = LocalIntegrationAdapter(state)
+    adapter.add_power_source("project_1")
+    adapter.set_bc_assignment_mode("project_1", "ps_1", "all", ["CHIP", "PCB"])
+
+    result = adapter.remove_selected_assignment("project_1", "ps_1", ["PCB"])
+
+    assert result.ok is True
+    assert state.bc_power_sources[0]["selection_mode"] == "manual"
+    assert "CHIP" in state.bc_power_sources[0]["assigned_objects"]
 
 
 def test_remove_selected_assignment_and_sync():

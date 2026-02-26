@@ -37,10 +37,17 @@ class AddTemperatureResponse:
 
 
 @dataclass
+class AddStressResponse:
+    result: OperationResult
+    item: Optional[dict] = None
+
+
+@dataclass
 class BoundaryConfigResponse:
     result: OperationResult
     power_sources: list[dict] = field(default_factory=list)
     temperatures: list[dict] = field(default_factory=list)
+    stresses: list[dict] = field(default_factory=list)
 
 
 @dataclass
@@ -67,3 +74,17 @@ class DefaultMaterialDetailResponse:
 class DefaultMaterialsBulkResponse:
     result: OperationResult
     materials: list[dict] = field(default_factory=list)  # each: {name, properties}
+
+
+@dataclass
+class SaveProjectResponse:
+    result: OperationResult
+    zip_bytes: Optional[bytes] = None
+    suggested_filename: str = "project.zip"
+
+
+@dataclass
+class LoadProjectResponse:
+    result: OperationResult
+    project_data: Optional[dict] = None
+    step_file_bytes: Optional[dict] = None  # {import_id: bytes}

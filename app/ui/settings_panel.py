@@ -375,6 +375,17 @@ def create_settings_panel(server):
                             classes="bc-power-input mb-2",
                             blur=(server.controller.set_bc_item_value, "[ps.id, 'power', $event.target.value]"),
                         )
+                        v3.VSelect(
+                            items=("[{title:'All Domains',value:'all'},{title:'Manual',value:'manual'}]",),
+                            model_value=("ps.selection_mode",),
+                            item_value="value",
+                            item_title="title",
+                            variant="outlined",
+                            density="compact",
+                            hide_details=True,
+                            classes="bc-assignment-mode-select mb-2",
+                            update_modelValue=(server.controller.set_bc_selection_mode, "[ps.id, $event]"),
+                        )
                         with html_widgets.Div(
                             style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;",
                         ):
@@ -406,7 +417,7 @@ def create_settings_panel(server):
                         ):
                             v3.VListItem(
                                 title="No objects assigned",
-                                v_if="!ps.assigned_objects || ps.assigned_objects.length === 0",
+                                v_if="!ps.assigned_objects?.length && !ps.overridden_objects?.length",
                                 density="compact",
                                 disabled=True,
                             )
@@ -419,8 +430,29 @@ def create_settings_panel(server):
                                     density="compact",
                                     style="min-height: 24px; padding-top: 2px; padding-bottom: 2px; font-size: 12px;",
                                     click=(
-                                        server.controller.select_bc_assignment,
+                                        server.controller.handle_bc_list_click,
                                         "[ps.id, objName, objIdx, $event.shiftKey, ($event.ctrlKey || $event.metaKey)]",
+                                    ),
+                                    v_bind_active=(
+                                        "bc_selected_assignment_item_id === ps.id && "
+                                        "(bc_selected_assignment_values || []).includes(objName)"
+                                    ),
+                                    __properties=[("v_bind_active", ":active")],
+                                )
+                            with html_widgets.Template(
+                                v_for="(objName, objIdx) in (ps.overridden_objects || [])",
+                                __properties=[("v_for", "v-for")],
+                            ):
+                                v3.VListItem(
+                                    v_bind_title="objName + ' (overridden)'",
+                                    density="compact",
+                                    style=(
+                                        "min-height: 24px; padding-top: 2px; padding-bottom: 2px;"
+                                        " font-size: 12px; color: #aaa; font-style: italic;"
+                                    ),
+                                    click=(
+                                        server.controller.handle_bc_list_click,
+                                        "[ps.id, objName, (ps.assigned_objects || []).length + objIdx, $event.shiftKey, ($event.ctrlKey || $event.metaKey)]",
                                     ),
                                     v_bind_active=(
                                         "bc_selected_assignment_item_id === ps.id && "
@@ -520,6 +552,17 @@ def create_settings_panel(server):
                             classes="bc-temperature-input mb-2",
                             blur=(server.controller.set_bc_item_value, "[tmp.id, 'temperature', $event.target.value]"),
                         )
+                        v3.VSelect(
+                            items=("[{title:'All Boundaries',value:'all'},{title:'Manual',value:'manual'}]",),
+                            model_value=("tmp.selection_mode",),
+                            item_value="value",
+                            item_title="title",
+                            variant="outlined",
+                            density="compact",
+                            hide_details=True,
+                            classes="bc-assignment-mode-select mb-2",
+                            update_modelValue=(server.controller.set_bc_selection_mode, "[tmp.id, $event]"),
+                        )
                         with html_widgets.Div(
                             style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;",
                         ):
@@ -551,7 +594,7 @@ def create_settings_panel(server):
                         ):
                             v3.VListItem(
                                 title="No surfaces assigned",
-                                v_if="!tmp.assigned_surfaces || tmp.assigned_surfaces.length === 0",
+                                v_if="!tmp.assigned_surfaces?.length && !tmp.overridden_surfaces?.length",
                                 density="compact",
                                 disabled=True,
                             )
@@ -564,8 +607,29 @@ def create_settings_panel(server):
                                     density="compact",
                                     style="min-height: 24px; padding-top: 2px; padding-bottom: 2px; font-size: 12px;",
                                     click=(
-                                        server.controller.select_bc_assignment,
+                                        server.controller.handle_bc_list_click,
                                         "[tmp.id, surfaceName, surfaceIdx, $event.shiftKey, ($event.ctrlKey || $event.metaKey)]",
+                                    ),
+                                    v_bind_active=(
+                                        "bc_selected_assignment_item_id === tmp.id && "
+                                        "(bc_selected_assignment_values || []).includes(surfaceName)"
+                                    ),
+                                    __properties=[("v_bind_active", ":active")],
+                                )
+                            with html_widgets.Template(
+                                v_for="(surfaceName, surfaceIdx) in (tmp.overridden_surfaces || [])",
+                                __properties=[("v_for", "v-for")],
+                            ):
+                                v3.VListItem(
+                                    v_bind_title="surfaceName + ' (overridden)'",
+                                    density="compact",
+                                    style=(
+                                        "min-height: 24px; padding-top: 2px; padding-bottom: 2px;"
+                                        " font-size: 12px; color: #aaa; font-style: italic;"
+                                    ),
+                                    click=(
+                                        server.controller.handle_bc_list_click,
+                                        "[tmp.id, surfaceName, (tmp.assigned_surfaces || []).length + surfaceIdx, $event.shiftKey, ($event.ctrlKey || $event.metaKey)]",
                                     ),
                                     v_bind_active=(
                                         "bc_selected_assignment_item_id === tmp.id && "
@@ -583,11 +647,216 @@ def create_settings_panel(server):
                 click=(server.controller.add_temperature, "[]"),
             )
 
+        # Stress BC — list with inline rename + Add button
+        with v3.VCardText(v_if="active_node === 'bc_stress'"):
+            v3.VCardTitle(
+                "Stress",
+                classes="text-subtitle-1 font-weight-bold pa-0 mb-2",
+            )
+            with v3.VList(density="compact"):
+                with html_widgets.Template(
+                    v_for="(st, stIdx) in bc_stresses",
+                    __properties=[("v_for", "v-for")],
+                ):
+                    # Editing mode — show text field
+                    with html_widgets.Div(
+                        v_if="bc_editing_id === st.id",
+                        style="display: flex; align-items: center; padding: 4px 8px;",
+                    ):
+                        v3.VTextField(
+                            v_model=("bc_editing_name",),
+                            variant="outlined",
+                            density="compact",
+                            hide_details=True,
+                            autofocus=True,
+                            style="flex: 1;",
+                            v_on_keyup_enter="$event.target.blur()",
+                            blur=(server.controller.finish_bc_rename, "[bc_editing_name]"),
+                            classes="bc-rename-input",
+                            __properties=[("v_on_keyup_enter", "v-on:keyup.enter")],
+                        )
+                    # Display mode — show name as list item, double-click to edit
+                    with html_widgets.Div(
+                        v_if="bc_editing_id !== st.id",
+                        style="display: flex; align-items: center; gap: 6px; padding: 2px 0;",
+                        classes="bc-item-row",
+                    ):
+                        with html_widgets.Div(style="flex: 1; min-width: 0;"):
+                            v3.VListItem(
+                                v_bind_title="st.name",
+                                prepend_icon="mdi-arrow-collapse-all",
+                                click=(server.controller.toggle_bc_item_expanded, "[st.id]"),
+                                dblclick=(server.controller.start_bc_rename, "[st.id]"),
+                                density="compact",
+                                classes="bc-item",
+                            )
+                        with v3.VBtn(
+                            icon=True,
+                            variant="text",
+                            color=("bc_expanded_stress_id === st.id ? 'primary' : 'grey'",),
+                            density="compact",
+                            click=(server.controller.toggle_bc_item_expanded, "[st.id]"),
+                            classes="bc-expand-btn",
+                        ):
+                            v3.VIcon(
+                                ("bc_expanded_stress_id === st.id ? 'mdi-chevron-up' : 'mdi-chevron-down'",),
+                                size="small",
+                            )
+                        with v3.VBtn(
+                            icon=True,
+                            variant="text",
+                            color="grey-lighten-1",
+                            density="compact",
+                            click=(server.controller.delete_bc_item, "[st.id]"),
+                            classes="bc-delete-btn",
+                        ):
+                            v3.VIcon("mdi-delete-outline", color="grey-lighten-1")
+                    with html_widgets.Div(
+                        v_if="bc_expanded_stress_id === st.id",
+                        style=(
+                            "border: 1px solid #e0e0e0; border-radius: 6px; margin: 4px 8px 8px 8px;"
+                            " padding: 8px;"
+                        ),
+                        classes="bc-expanded-body",
+                    ):
+                        v3.VTextField(
+                            label="Pressure / Force (Pa)",
+                            type="number",
+                            v_bind_model_value="st.value",
+                            variant="outlined",
+                            density="compact",
+                            hide_details=True,
+                            classes="bc-stress-input mb-2",
+                            blur=(server.controller.set_bc_item_value, "[st.id, 'value', $event.target.value]"),
+                        )
+                        v3.VSelect(
+                            items=("[{title:'All Boundaries',value:'all'},{title:'Manual',value:'manual'}]",),
+                            model_value=("st.selection_mode",),
+                            item_value="value",
+                            item_title="title",
+                            variant="outlined",
+                            density="compact",
+                            hide_details=True,
+                            classes="bc-assignment-mode-select mb-2",
+                            update_modelValue=(server.controller.set_bc_selection_mode, "[st.id, $event]"),
+                        )
+                        with html_widgets.Div(
+                            style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;",
+                        ):
+                            html_widgets.Div("Assigned Surfaces", classes="text-caption font-weight-bold")
+                            with html_widgets.Div(style="display: flex; gap: 4px;"):
+                                with v3.VBtn(
+                                    icon=True,
+                                    variant="text",
+                                    density="compact",
+                                    click=(server.controller.open_bc_add_placeholder, "[st.id]"),
+                                    classes="bc-assign-add-btn",
+                                ):
+                                    v3.VIcon("mdi-plus", size="small")
+                                with v3.VBtn(
+                                    icon=True,
+                                    variant="text",
+                                    density="compact",
+                                    click=(server.controller.remove_selected_bc_assignment, "[st.id]"),
+                                    classes="bc-assign-remove-btn",
+                                ):
+                                    v3.VIcon("mdi-minus", size="small")
+                        with v3.VList(
+                            density="compact",
+                            style=(
+                                "border: 1px solid #d8d8d8; border-radius: 4px;"
+                                " height: 180px; overflow-y: auto;"
+                            ),
+                            classes="bc-assignment-list",
+                        ):
+                            v3.VListItem(
+                                title="No surfaces assigned",
+                                v_if="!st.assigned_surfaces?.length && !st.overridden_surfaces?.length",
+                                density="compact",
+                                disabled=True,
+                            )
+                            with html_widgets.Template(
+                                v_for="(surfaceName, surfaceIdx) in st.assigned_surfaces",
+                                __properties=[("v_for", "v-for")],
+                            ):
+                                v3.VListItem(
+                                    v_bind_title="surfaceName",
+                                    density="compact",
+                                    style="min-height: 24px; padding-top: 2px; padding-bottom: 2px; font-size: 12px;",
+                                    click=(
+                                        server.controller.handle_bc_list_click,
+                                        "[st.id, surfaceName, surfaceIdx, $event.shiftKey, ($event.ctrlKey || $event.metaKey)]",
+                                    ),
+                                    v_bind_active=(
+                                        "bc_selected_assignment_item_id === st.id && "
+                                        "(bc_selected_assignment_values || []).includes(surfaceName)"
+                                    ),
+                                    __properties=[("v_bind_active", ":active")],
+                                )
+                            with html_widgets.Template(
+                                v_for="(surfaceName, surfaceIdx) in (st.overridden_surfaces || [])",
+                                __properties=[("v_for", "v-for")],
+                            ):
+                                v3.VListItem(
+                                    v_bind_title="surfaceName + ' (overridden)'",
+                                    density="compact",
+                                    style=(
+                                        "min-height: 24px; padding-top: 2px; padding-bottom: 2px;"
+                                        " font-size: 12px; color: #aaa; font-style: italic;"
+                                    ),
+                                    click=(
+                                        server.controller.handle_bc_list_click,
+                                        "[st.id, surfaceName, (st.assigned_surfaces || []).length + surfaceIdx, $event.shiftKey, ($event.ctrlKey || $event.metaKey)]",
+                                    ),
+                                    v_bind_active=(
+                                        "bc_selected_assignment_item_id === st.id && "
+                                        "(bc_selected_assignment_values || []).includes(surfaceName)"
+                                    ),
+                                    __properties=[("v_bind_active", ":active")],
+                                )
+            v3.VBtn(
+                "Add Stress",
+                prepend_icon="mdi-plus",
+                variant="tonal",
+                color="primary",
+                density="compact",
+                classes="mt-2",
+                click=(server.controller.add_stress, "[]"),
+            )
+
+        # Time Step — singleton section with duration + resolution fields
+        with v3.VCardText(v_if="active_node === 'bc_timestep'"):
+            v3.VCardTitle(
+                "Time Step",
+                classes="text-subtitle-1 font-weight-bold pa-0 mb-2",
+            )
+            v3.VTextField(
+                label="Duration (s)",
+                type="number",
+                model_value=("time_step_duration",),
+                variant="outlined",
+                density="compact",
+                hide_details=True,
+                classes="bc-timestep-duration mb-3",
+                blur=(server.controller.set_time_step, "['duration', $event.target.value]"),
+            )
+            v3.VTextField(
+                label="Resolution (s)",
+                type="number",
+                model_value=("time_step_resolution",),
+                variant="outlined",
+                density="compact",
+                hide_details=True,
+                classes="bc-timestep-resolution",
+                blur=(server.controller.set_time_step, "['resolution', $event.target.value]"),
+            )
+
         # Show top-level node settings (not geometry, not a BC category)
         with v3.VCardText(
             v_if=(
                 "active_node && active_node !== 'geometry'"
                 " && active_node !== 'bc_power_source' && active_node !== 'bc_temperature'"
+                " && active_node !== 'bc_stress' && active_node !== 'bc_timestep'"
                 " && active_node !== 'materials'"
                 " && settings_content[active_node]"
             ),

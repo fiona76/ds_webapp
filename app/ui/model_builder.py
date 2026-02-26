@@ -35,19 +35,25 @@ def create_model_builder(server):
     state.geometry_expanded_import_id = ""
 
     # Boundary Condition items
+    state.physics_type = ""  # "" = not yet selected; set by user via dropdown in tree
     state.bc_power_sources = []       # [{id: "ps_1", name: "Power Source 1"}, ...]
     state.bc_temperatures = []        # [{id: "temp_1", name: "Temperature 1"}, ...]
+    state.bc_stresses = []            # [{id: "stress_1", name: "Stress 1", assigned_surfaces: [], value: 0}]
     state.bc_power_source_counter = 0
     state.bc_temperature_counter = 0
+    state.bc_stress_counter = 0
     state.bc_expanded_power_source_id = ""
     state.bc_expanded_temperature_id = ""
-    state.bc_active_assignment_type = ""   # "power_source" | "temperature" | ""
-    state.bc_active_assignment_id = ""     # ps_* | temp_* | ""
+    state.bc_expanded_stress_id = ""
+    state.bc_active_assignment_type = ""   # "power_source" | "temperature" | "stress" | ""
+    state.bc_active_assignment_id = ""     # ps_* | temp_* | stress_* | ""
     state.bc_selected_assignment_item_id = ""
     state.bc_selected_assignment_values = []
     state.bc_selection_anchor_index = -1
     state.show_bc_add_placeholder = False
     state.bc_add_placeholder_message = ""
+    state.time_step_duration = ""
+    state.time_step_resolution = ""
     state.materials_catalog = []
     state.materials_items = []
     state.materials_expanded_item = ""
@@ -59,7 +65,8 @@ def create_model_builder(server):
     state.redo_available = False
 
     # Server-side storage for mesh data (not in trame state — too large)
-    _geometry_meshes = {}  # import_id -> list of object dicts with vertices/triangles
+    _geometry_meshes = {}   # import_id -> list of object dicts with vertices/triangles
+    _step_file_paths = {}   # import_id -> absolute path to original STEP file
 
     # Integration adapter — all BC business logic delegates here
     _adapter = create_integration_adapter(state)
@@ -88,9 +95,10 @@ def create_model_builder(server):
         # show_geometry → _apply_all_styles reads the already-cleared state.
         state.selected_object = None
         state.selected_surface = None
-        if active_node not in ("bc_power_source", "bc_temperature"):
+        if active_node not in ("bc_power_source", "bc_temperature", "bc_stress", "bc_timestep"):
             state.bc_expanded_power_source_id = ""
             state.bc_expanded_temperature_id = ""
+            state.bc_expanded_stress_id = ""
             state.bc_active_assignment_type = ""
             state.bc_active_assignment_id = ""
             state.bc_selected_assignment_item_id = ""
@@ -124,8 +132,9 @@ def create_model_builder(server):
             state.geometry_import_counter = state.geometry_import_counter + 1
             import_id = f"import_{state.geometry_import_counter}"
 
-            # Store mesh data server-side
+            # Store mesh data and original file path server-side
             _geometry_meshes[import_id] = result["objects"]
+            _step_file_paths[import_id] = result["file_path"]
 
             # Store only names in trame state for UI
             object_names = [obj["name"] for obj in result["objects"]]
@@ -192,6 +201,41 @@ def create_model_builder(server):
             _log(f"[BC] Added {response.item['name']}")
         else:
             _log(f"[BC] Error adding temperature: {response.result.message}")
+
+    def add_stress():
+        snap = _history.capture(state)
+        response = _adapter.add_stress(_PROJECT_ID)
+        if response.result.ok:
+            _history.commit(snap, state)
+            _log(f"[BC] Added {response.item['name']}")
+        else:
+            _log(f"[BC] Error adding stress: {response.result.message}")
+
+    def set_physics_type(physics_type):
+        """Update the simulation physics type and clear any now-hidden active BC nodes."""
+        state.physics_type = physics_type
+        _log(f"[BC] Physics type set to: {physics_type}")
+        # Clear active_node if the currently selected BC leaf is no longer visible
+        thermal_nodes = {"bc_power_source", "bc_temperature"}
+        stress_nodes = {"bc_stress"}
+        transient_nodes = {"bc_timestep"}
+        thermal_physics = {"static_thermal", "transient_thermal", "static_thermal_mechanical", "transient_thermal_mechanical"}
+        stress_physics = {"static_stress", "transient_stress", "static_thermal_mechanical", "transient_thermal_mechanical"}
+        transient_physics = {"transient_thermal", "transient_stress", "transient_thermal_mechanical"}
+        node = state.active_node
+        if node in thermal_nodes and physics_type not in thermal_physics:
+            state.active_node = "boundary_condition"
+        elif node in stress_nodes and physics_type not in stress_physics:
+            state.active_node = "boundary_condition"
+        elif node in transient_nodes and physics_type not in transient_physics:
+            state.active_node = "boundary_condition"
+
+    def set_time_step(field, value):
+        """Set time step duration or resolution."""
+        if field == "duration":
+            state.time_step_duration = value
+        elif field == "resolution":
+            state.time_step_resolution = value
 
     def _ensure_catalog_loaded():
         if state.materials_catalog:
@@ -300,6 +344,7 @@ def create_model_builder(server):
     def _clear_assignment_focus():
         state.bc_active_assignment_type = ""
         state.bc_active_assignment_id = ""
+        state.bc_expanded_stress_id = ""
         state.bc_selected_assignment_item_id = ""
         state.bc_selected_assignment_values = []
         state.bc_selection_anchor_index = -1
@@ -339,16 +384,35 @@ def create_model_builder(server):
                 state.selected_surface = None
                 if hasattr(server.controller, "highlight_object"):
                     server.controller.highlight_object()
+        elif item_id.startswith("stress_"):
+            if state.bc_expanded_stress_id == item_id:
+                state.bc_expanded_stress_id = ""
+                _clear_assignment_focus()
+            else:
+                state.bc_expanded_stress_id = item_id
+                state.bc_active_assignment_type = "stress"
+                state.bc_active_assignment_id = item_id
+                state.bc_selected_assignment_item_id = ""
+                state.bc_selected_assignment_values = []
+                state.bc_selection_anchor_index = -1
+                state.selected_object = None
+                state.selected_surface = None
+                if hasattr(server.controller, "highlight_object"):
+                    server.controller.highlight_object()
 
     def _get_assignment_values(item_id):
         if item_id.startswith("ps_"):
             for it in state.bc_power_sources:
                 if it["id"] == item_id:
-                    return list(it.get("assigned_objects", []))
+                    return list(it.get("assigned_objects", [])) + list(it.get("overridden_objects", []))
         elif item_id.startswith("temp_"):
             for it in state.bc_temperatures:
                 if it["id"] == item_id:
-                    return list(it.get("assigned_surfaces", []))
+                    return list(it.get("assigned_surfaces", [])) + list(it.get("overridden_surfaces", []))
+        elif item_id.startswith("stress_"):
+            for it in state.bc_stresses:
+                if it["id"] == item_id:
+                    return list(it.get("assigned_surfaces", [])) + list(it.get("overridden_surfaces", []))
         return []
 
     def select_bc_assignment(item_id, value, index, shift_key=False, toggle_key=False):
@@ -419,6 +483,10 @@ def create_model_builder(server):
             state.bc_add_placeholder_message = (
                 "Custom surface assignment flow is not implemented yet."
             )
+        elif item_id.startswith("stress_"):
+            state.bc_add_placeholder_message = (
+                "Custom surface assignment flow is not implemented yet."
+            )
         else:
             state.bc_add_placeholder_message = "Custom assignment flow is not implemented yet."
         state.show_bc_add_placeholder = True
@@ -430,6 +498,9 @@ def create_model_builder(server):
         elif item_id.startswith("temp_") and field_name == "temperature":
             snap = _history.capture(state)
             result = _adapter.set_temperature_value(_PROJECT_ID, item_id, value)
+        elif item_id.startswith("stress_") and field_name == "value":
+            snap = _history.capture(state)
+            result = _adapter.set_stress_value(_PROJECT_ID, item_id, value)
         else:
             return
         if result.ok:
@@ -483,6 +554,98 @@ def create_model_builder(server):
         else:
             _log(f"[BC] {result.message}")
 
+    def toggle_assign_stress_surface(item_id, surface_name):
+        if not item_id or not surface_name:
+            return
+        snap = _history.capture(state)
+        result = _adapter.toggle_assign_stress_surface(_PROJECT_ID, item_id, surface_name)
+        if result.ok:
+            _history.commit(snap, state)
+            if result.message == "Unassigned":
+                if state.bc_selected_assignment_item_id == item_id:
+                    state.bc_selected_assignment_values = [
+                        v for v in state.bc_selected_assignment_values if v != surface_name
+                    ]
+                    if not state.bc_selected_assignment_values:
+                        state.bc_selected_assignment_item_id = ""
+                        state.bc_selection_anchor_index = -1
+                _log(f"[BC] Unassigned surface {surface_name}")
+            else:
+                _log(f"[BC] Assigned surface {surface_name}")
+            if hasattr(server.controller, "highlight_object"):
+                server.controller.highlight_object()
+        else:
+            _log(f"[BC] {result.message}")
+
+    def set_bc_selection_mode(item_id, mode):
+        # Guard: Vuetify may emit the whole item object instead of the value string
+        if isinstance(mode, dict):
+            mode = mode.get("value", "manual")
+        # Guard: null/undefined from JS arrives as None
+        if not mode:
+            mode = "manual"
+        if not item_id:
+            _log("[BC] set_bc_selection_mode: missing item_id, ignoring")
+            return
+        if mode == "all":
+            if item_id.startswith("ps_"):
+                all_values = [
+                    obj_name
+                    for imp in state.geometry_imports
+                    for obj_name in imp.get("objects", [])
+                ]
+            else:
+                all_values = []
+                for objects in _geometry_meshes.values():
+                    for obj in objects:
+                        for face in obj.get("faces", []):
+                            label = f"{obj['name']}:{face.get('label', 'Face-1')}"
+                            all_values.append(label)
+            # Deduplicate while preserving order
+            all_values = list(dict.fromkeys(all_values))
+        else:
+            all_values = []
+        snap = _history.capture(state)
+        result = _adapter.set_bc_assignment_mode(_PROJECT_ID, item_id, mode, all_values)
+        if result.ok:
+            _history.commit(snap, state)
+            _log(f"[BC] Assignment mode set to '{mode}' for {item_id}")
+            if hasattr(server.controller, "highlight_object"):
+                server.controller.highlight_object()
+        else:
+            _log(f"[BC] Error setting mode: {result.message}")
+
+    def handle_bc_list_click(item_id, value, idx, shift_key=False, toggle_key=False):
+        is_overridden = False
+        if item_id.startswith("ps_"):
+            for it in state.bc_power_sources:
+                if it["id"] == item_id:
+                    is_overridden = value in it.get("overridden_objects", [])
+                    break
+        elif item_id.startswith("temp_"):
+            for it in state.bc_temperatures:
+                if it["id"] == item_id:
+                    is_overridden = value in it.get("overridden_surfaces", [])
+                    break
+        elif item_id.startswith("stress_"):
+            for it in state.bc_stresses:
+                if it["id"] == item_id:
+                    is_overridden = value in it.get("overridden_surfaces", [])
+                    break
+
+        if is_overridden:
+            snap = _history.capture(state)
+            result = _adapter.reclaim_bc_assignment(_PROJECT_ID, item_id, value)
+            if result.ok:
+                _history.commit(snap, state)
+                _log(f"[BC] Reclaimed {value} for {item_id}")
+                if hasattr(server.controller, "highlight_object"):
+                    server.controller.highlight_object()
+            else:
+                _log(f"[BC] {result.message}")
+        else:
+            select_bc_assignment(item_id, value, idx, shift_key, toggle_key)
+
     def rename_bc_item(item_id, new_name):
         if not new_name or not new_name.strip():
             return
@@ -491,6 +654,8 @@ def create_model_builder(server):
             result = _adapter.rename_power_source(_PROJECT_ID, item_id, new_name)
         elif item_id.startswith("temp_"):
             result = _adapter.rename_temperature(_PROJECT_ID, item_id, new_name)
+        elif item_id.startswith("stress_"):
+            result = _adapter.rename_stress(_PROJECT_ID, item_id, new_name)
         else:
             return
         if result.ok:
@@ -505,6 +670,8 @@ def create_model_builder(server):
             result = _adapter.delete_power_source(_PROJECT_ID, item_id)
         elif item_id.startswith("temp_"):
             result = _adapter.delete_temperature(_PROJECT_ID, item_id)
+        elif item_id.startswith("stress_"):
+            result = _adapter.delete_stress(_PROJECT_ID, item_id)
         else:
             return
 
@@ -515,6 +682,8 @@ def create_model_builder(server):
                 state.bc_expanded_power_source_id = ""
             elif item_id.startswith("temp_") and state.bc_expanded_temperature_id == item_id:
                 state.bc_expanded_temperature_id = ""
+            elif item_id.startswith("stress_") and state.bc_expanded_stress_id == item_id:
+                state.bc_expanded_stress_id = ""
             if state.bc_editing_id == item_id:
                 state.bc_editing_id = ""
                 state.bc_editing_name = ""
@@ -529,6 +698,11 @@ def create_model_builder(server):
                 state.bc_editing_name = item["name"]
                 return
         for item in state.bc_temperatures:
+            if item["id"] == item_id:
+                state.bc_editing_id = item_id
+                state.bc_editing_name = item["name"]
+                return
+        for item in state.bc_stresses:
             if item["id"] == item_id:
                 state.bc_editing_id = item_id
                 state.bc_editing_name = item["name"]
@@ -554,6 +728,9 @@ def create_model_builder(server):
     server.controller.toggle_geometry_import_expanded = toggle_geometry_import_expanded
     server.controller.add_power_source = add_power_source
     server.controller.add_temperature = add_temperature
+    server.controller.add_stress = add_stress
+    server.controller.set_physics_type = set_physics_type
+    server.controller.set_time_step = set_time_step
     server.controller.rename_bc_item = rename_bc_item
     server.controller.delete_bc_item = delete_bc_item
     server.controller.start_bc_rename = start_bc_rename
@@ -565,12 +742,82 @@ def create_model_builder(server):
     server.controller.set_bc_item_value = set_bc_item_value
     server.controller.toggle_assign_power_source_object = toggle_assign_power_source_object
     server.controller.toggle_assign_temperature_surface = toggle_assign_temperature_surface
+    server.controller.toggle_assign_stress_surface = toggle_assign_stress_surface
+    server.controller.set_bc_selection_mode = set_bc_selection_mode
+    server.controller.handle_bc_list_click = handle_bc_list_click
     server.controller.create_blank_material = create_blank_material
     server.controller.load_all_default_materials = load_all_default_materials
     server.controller.toggle_material_expanded = toggle_material_expanded
     server.controller.start_material_rename = start_material_rename
     server.controller.finish_material_rename = finish_material_rename
     server.controller.set_material_property_value = set_material_property_value
+
+    def save_project(filename_override=None):
+        import base64
+        resp = _adapter.save_project(_PROJECT_ID, _geometry_meshes, _step_file_paths)
+        if resp.result.ok:
+            fname = filename_override or resp.suggested_filename
+            state.project_filename = fname
+            state.project_dirty = False
+            state.project_zip_payload = {
+                "data": base64.b64encode(resp.zip_bytes).decode(),
+                "filename": fname,
+            }
+            _log(f"[File] Saved as {fname}")
+        else:
+            _log(f"[File] Save failed: {resp.result.message}")
+
+    @state.change("project_upload_payload")
+    def on_project_upload(project_upload_payload, **_):
+        if not project_upload_payload or not project_upload_payload.get("data"):
+            return
+        import base64
+        zip_bytes = base64.b64decode(project_upload_payload["data"])
+        filename = project_upload_payload.get("filename", "project.zip")
+        resp = _adapter.load_project(_PROJECT_ID, zip_bytes)
+        if not resp.result.ok:
+            _log(f"[File] Open failed: {resp.result.message}")
+            state.project_upload_payload = None
+            return
+        pd = resp.project_data
+        # Restore mesh data server-side (no STEP re-parse needed)
+        _geometry_meshes.clear()
+        _step_file_paths.clear()
+        for imp_id, objects in pd.get("geometry_meshes", {}).items():
+            _geometry_meshes[imp_id] = objects
+        # Restore all serialised state keys
+        for key in [
+            "geometry_imports", "geometry_import_counter", "viewer_geometry_unit",
+            "physics_type",
+            "bc_power_sources", "bc_temperatures", "bc_stresses",
+            "bc_power_source_counter", "bc_temperature_counter", "bc_stress_counter",
+            "time_step_duration", "time_step_resolution",
+            "materials_items", "materials_counter",
+        ]:
+            if key in pd:
+                setattr(state, key, pd[key])
+        # Reset history and dirty flag
+        _history.clear(state)
+        state.project_dirty = False
+        state.project_filename = filename
+        state.project_upload_payload = None
+        # Reset UI navigation state
+        state.active_node = None
+        state.bc_active_assignment_type = ""
+        state.bc_active_assignment_id = ""
+        state.bc_expanded_power_source_id = ""
+        state.bc_expanded_temperature_id = ""
+        state.bc_expanded_stress_id = ""
+        state.selected_object = None
+        state.selected_surface = None
+        # Show first geometry if present
+        imports = state.geometry_imports or []
+        if imports and imports[0]["id"] in _geometry_meshes:
+            state.geometry_expanded_import_id = imports[0]["id"]
+            state.active_node = "geometry"
+            if hasattr(server.controller, "show_geometry"):
+                server.controller.show_geometry(_geometry_meshes[imports[0]["id"]])
+        _log(f"[File] Opened {filename}")
 
     def undo():
         if _history.undo(state):
@@ -582,6 +829,7 @@ def create_model_builder(server):
 
     server.controller.undo = undo
     server.controller.redo = redo
+    server.controller.save_project = save_project
 
     with v3.VCard(
         classes="fill-height",
@@ -620,7 +868,7 @@ def create_model_builder(server):
                         )
 
                 elif node["id"] == "boundary_condition":
-                    # Boundary Condition — expands to show Power Source and Temperature
+                    # Boundary Condition — expands to show physics selector + dependent leaves
                     with v3.VListGroup(value="boundary_condition"):
                         with html_widgets.Template(v_slot_activator="{ props }"):
                             v3.VListItem(
@@ -630,22 +878,81 @@ def create_model_builder(server):
                                 click="active_node = 'boundary_condition'",
                             )
 
-                        # Power Source leaf item (items managed in Settings only)
+                        # Physics type selector — always visible when BC group is open
+                        with html_widgets.Div(style="padding: 4px 16px 8px 16px;"):
+                            v3.VSelect(
+                                items=(
+                                    "[{title:'Static Thermal',value:'static_thermal'},"
+                                    "{title:'Transient Thermal',value:'transient_thermal'},"
+                                    "{title:'Static Stress',value:'static_stress'},"
+                                    "{title:'Transient Stress',value:'transient_stress'},"
+                                    "{title:'Static Thermal-Mechanical',value:'static_thermal_mechanical'},"
+                                    "{title:'Transient Thermal-Mechanical',value:'transient_thermal_mechanical'}]",
+                                ),
+                                model_value=("physics_type || null",),
+                                placeholder="Select physics type...",
+                                variant="outlined",
+                                density="compact",
+                                hide_details=True,
+                                clearable=True,
+                                classes="bc-physics-select",
+                                update_modelValue=(server.controller.set_physics_type, "[$event || '']"),
+                            )
+
+                        # Power Source — visible for thermal and thermal-mechanical physics
                         v3.VListItem(
                             title="Power Source",
                             prepend_icon="mdi-flash",
                             value="bc_power_source",
                             click="active_node = 'bc_power_source'",
                             density="compact",
+                            v_if=(
+                                "['static_thermal','transient_thermal',"
+                                "'static_thermal_mechanical','transient_thermal_mechanical']"
+                                ".includes(physics_type)"
+                            ),
                         )
 
-                        # Temperature leaf item (items managed in Settings only)
+                        # Temperature — visible for thermal and thermal-mechanical physics
                         v3.VListItem(
                             title="Temperature",
                             prepend_icon="mdi-thermometer",
                             value="bc_temperature",
                             click="active_node = 'bc_temperature'",
                             density="compact",
+                            v_if=(
+                                "['static_thermal','transient_thermal',"
+                                "'static_thermal_mechanical','transient_thermal_mechanical']"
+                                ".includes(physics_type)"
+                            ),
+                        )
+
+                        # Stress — visible for stress and thermal-mechanical physics
+                        v3.VListItem(
+                            title="Stress",
+                            prepend_icon="mdi-arrow-collapse-all",
+                            value="bc_stress",
+                            click="active_node = 'bc_stress'",
+                            density="compact",
+                            v_if=(
+                                "['static_stress','transient_stress',"
+                                "'static_thermal_mechanical','transient_thermal_mechanical']"
+                                ".includes(physics_type)"
+                            ),
+                        )
+
+                        # Time Step — visible for all transient physics
+                        v3.VListItem(
+                            title="Time Step",
+                            prepend_icon="mdi-clock-outline",
+                            value="bc_timestep",
+                            click="active_node = 'bc_timestep'",
+                            density="compact",
+                            v_if=(
+                                "['transient_thermal','transient_stress',"
+                                "'transient_thermal_mechanical']"
+                                ".includes(physics_type)"
+                            ),
                         )
 
                 elif node["id"] == "materials":

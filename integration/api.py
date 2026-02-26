@@ -2,13 +2,16 @@ from typing import Protocol
 
 from integration.dto import (
     AddPowerSourceResponse,
+    AddStressResponse,
     AddTemperatureResponse,
     BoundaryConfigResponse,
     CatalogResponse,
     DefaultMaterialsListResponse,
     DefaultMaterialDetailResponse,
     DefaultMaterialsBulkResponse,
+    LoadProjectResponse,
     OperationResult,
+    SaveProjectResponse,
     SyncResult,
 )
 
@@ -44,6 +47,27 @@ class IntegrationAPI(Protocol):
     def toggle_assign_temperature_surface(self, project_id: str, temperature_id: str, surface_name: str) -> OperationResult:
         ...
 
+    def add_stress(self, project_id: str, name: str | None = None) -> AddStressResponse:
+        ...
+
+    def rename_stress(self, project_id: str, stress_id: str, new_name: str) -> OperationResult:
+        ...
+
+    def delete_stress(self, project_id: str, stress_id: str) -> OperationResult:
+        ...
+
+    def set_stress_value(self, project_id: str, stress_id: str, value: str | float) -> OperationResult:
+        ...
+
+    def toggle_assign_stress_surface(self, project_id: str, stress_id: str, surface_name: str) -> OperationResult:
+        ...
+
+    def reclaim_bc_assignment(self, project_id: str, item_id: str, value: str) -> OperationResult:
+        ...
+
+    def set_bc_assignment_mode(self, project_id: str, item_id: str, mode: str, all_values: list[str] = ...) -> OperationResult:
+        ...
+
     def remove_selected_assignment(self, project_id: str, item_id: str, selected_values: list[str]) -> OperationResult:
         ...
 
@@ -63,4 +87,10 @@ class IntegrationAPI(Protocol):
         ...
 
     def list_default_materials_full(self) -> DefaultMaterialsBulkResponse:
+        ...
+
+    def save_project(self, project_id: str, geometry_meshes: dict, step_file_paths: dict) -> SaveProjectResponse:
+        ...
+
+    def load_project(self, project_id: str, zip_bytes: bytes) -> LoadProjectResponse:
         ...
